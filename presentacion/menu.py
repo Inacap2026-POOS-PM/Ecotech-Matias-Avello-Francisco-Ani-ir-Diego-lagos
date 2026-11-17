@@ -1,4 +1,5 @@
 import json
+from infraestructura.api_externa import consultar_dolar
 from psycopg import (
     IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError
 )
@@ -360,9 +361,11 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         "15": (mostrar_informes_desde_supabase, (conexion,)),
         "16": (exportar_informe_desde_supabase, (conexion, "excel")),
         "17": (exportar_informe_desde_supabase, (conexion, "pdf")),
+        "18": (consultar_dolar_desde_menu, (sesion,)),
     }
+    
     try:
-        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 17.")
+        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 18.")
     except ValueError as error:
         print("Dato inválido:", error)
     except ConnectionError:
@@ -495,8 +498,29 @@ def menu_gerente(conexion, servicio, sesion):
         print("15. Generar informes de Supabase")
         print("16. Guardar informe en Excel (.xlsx)")
         print("17. Guardar informe en PDF (.pdf)")
+        print("18. Consultar precio del dólar")
         print("0. Salir")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
             return
         ejecutar_opcion_menu(opcion, conexion, servicio, sesion)
+
+def mostrar_cotizacion_dolar(cotizacion):
+    precio = f"{cotizacion.venta:.2f}".replace(".", ",")
+    fecha = cotizacion.fecha_actualizacion.astimezone().strftime("%d/%m/%Y %H:%M:%S")
+
+    encabezado = f"{'Moneda':<6} | {'Venta (CLP por USD)':>18} | Actualización (hora local)"
+    print(encabezado)
+    print("-" * len(encabezado))
+    print(f"{cotizacion.moneda:<6} | {precio:>18} | {fecha}")
+
+def consultar_dolar_desde_menu(sesion):
+    exigir_gerente(sesion)
+
+    try:
+        cotizacion = consultar_dolar()
+    except (ConnectionError, ValueError) as error:
+        print(error)
+        return
+
+    mostrar_cotizacion_dolar(cotizacion)
