@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
+
+from validaciones import validar_dinero
 
 
 @dataclass(frozen=True)
@@ -8,6 +10,12 @@ class CotizacionDolar:
     moneda: str
     venta: Decimal
     fecha_actualizacion: datetime
+
+    def calcular_pago_clp(self, monto_usd: str) -> Decimal:
+        monto = validar_dinero(monto_usd, "El monto en USD")
+        if monto == 0:
+            raise ValueError("El monto en USD debe ser mayor que cero.")
+        return (monto * self.venta).to_integral_value(rounding=ROUND_HALF_UP)
 
 
 class DeserializadorCotizacion:

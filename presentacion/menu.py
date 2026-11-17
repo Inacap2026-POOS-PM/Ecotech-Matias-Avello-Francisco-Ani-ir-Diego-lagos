@@ -1,5 +1,7 @@
 import json
 from infraestructura.api_externa import consultar_dolar
+from datetime import datetime, timezone
+from infraestructura.respaldo_dolar import guardar_cotizacion, leer_respaldo
 from psycopg import (
     IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError
 )
@@ -498,7 +500,7 @@ def menu_gerente(conexion, servicio, sesion):
         print("15. Generar informes de Supabase")
         print("16. Guardar informe en Excel (.xlsx)")
         print("17. Guardar informe en PDF (.pdf)")
-        print("18. Consultar precio del dólar")
+        print("18. Consultar dólar y calcular pago en pesos")
         print("0. Salir")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
@@ -521,6 +523,50 @@ def consultar_dolar_desde_menu(sesion):
         cotizacion = consultar_dolar()
     except (ConnectionError, ValueError) as error:
         print(error)
+        mostrar_respaldo_dolar()
         return
 
     mostrar_cotizacion_dolar(cotizacion)
+    solicitar_monto_usd(cotizacion)
+
+    try:
+        guardar_cotizacion(cotizacion)
+    except OSError as error:
+        print(error)
+    solicitar_monto_usd(cotizacion)
+
+
+def mostrar_respaldo_dolar():
+    try:
+        respaldo = leer_respaldo()
+    except OSError as error:
+        print(error)
+        return
+
+    if respaldo is None:
+        print("Todavía no hay una cotización guardada en este equipo.")
+        return
+
+    cotizacion, obtenido_en = respaldo
+    antiguedad = datetime.now(timezone.utc) - obtenido_en
+    minutos = max(0, int(antiguedad.total_seconds() // 60))
+    fecha_local = obtenido_en.astimezone().strftime("%d/%m/%Y %H:%M:%S")
+
+    print(f"COTIZACIÓN DE RESPALDO | Obtenida el {fecha_local} | Antigüedad: {minutos} min")
+    mostrar_cotizacion_dolar(cotizacion)
+
+def solicitar_monto_usd(cotizacion):
+    while True:
+        entrada = input("Monto en USD sin separador de miles (Enter para volver): ").strip()
+        if not entrada:
+            return
+
+        try:
+            total = cotizacion.calcular_pago_clp(entrada.replace(",", "."))
+        except ValueError as error:
+            print(error)
+            continue
+
+        pesos = f"{total:,.0f}".replace(",", ".")
+        print(f"Pago estimado: {pesos} CLP")
+        return
