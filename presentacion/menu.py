@@ -1,5 +1,6 @@
 import json
-from infraestructura.api_externa import consultar_dolar
+from infraestructura.apis.dolar import consultar_dolar
+from infraestructura.apis.clima import buscar_ubicaciones, consultar_clima
 from datetime import datetime, timezone
 from infraestructura.respaldo_dolar import guardar_cotizacion, leer_respaldo
 from psycopg import (
@@ -364,10 +365,11 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         "16": (exportar_informe_desde_supabase, (conexion, "excel")),
         "17": (exportar_informe_desde_supabase, (conexion, "pdf")),
         "18": (consultar_dolar_desde_menu, (sesion,)),
+        "19": (consultar_clima_desde_menu, (sesion,)),
     }
     
     try:
-        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 18.")
+        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 19.")
     except ValueError as error:
         print("Dato inválido:", error)
     except ConnectionError:
@@ -496,11 +498,12 @@ def menu_gerente(conexion, servicio, sesion):
         print("11. Gestionar proyectos")
         print("12. Gestionar departamentos")
         print("13. Gestionar asignaciones y horas")
-        print("14. Registrar tiempo (tu clase Tiempo)")
+        print("14. Registrar tiempo ")
         print("15. Generar informes de Supabase")
-        print("16. Guardar informe en Excel (.xlsx)")
-        print("17. Guardar informe en PDF (.pdf)")
+        print("16. Guardar informe en Excel ")
+        print("17. Guardar informe en PDF")
         print("18. Consultar dólar y calcular pago en pesos")
+        print("19. Consultar clima del proyecto")
         print("0. Salir")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
@@ -527,7 +530,7 @@ def consultar_dolar_desde_menu(sesion):
         return
 
     mostrar_cotizacion_dolar(cotizacion)
-    solicitar_monto_usd(cotizacion)
+    
 
     try:
         guardar_cotizacion(cotizacion)
@@ -554,6 +557,7 @@ def mostrar_respaldo_dolar():
 
     print(f"COTIZACIÓN DE RESPALDO | Obtenida el {fecha_local} | Antigüedad: {minutos} min")
     mostrar_cotizacion_dolar(cotizacion)
+    solicitar_monto_usd(cotizacion)
 
 def solicitar_monto_usd(cotizacion):
     while True:
@@ -570,3 +574,55 @@ def solicitar_monto_usd(cotizacion):
         pesos = f"{total:,.0f}".replace(",", ".")
         print(f"Pago estimado: {pesos} CLP")
         return
+
+def elegir_ubicacion(lugares):
+    if len(lugares) == 1:
+        return lugares[0]
+
+    opciones = {str(i): lugar for i, lugar in enumerate(lugares, start=1)}
+
+    for numero, lugar in opciones.items():
+        print(f"{numero}. {lugar.nombre}")
+
+    while True:
+        numero = input("Elige la ubicación (0 para volver): ").strip()
+
+        if numero == "0":
+            return None
+        if numero in opciones:
+            return opciones[numero]
+
+        print("Elige uno de los números de la lista.")
+
+
+def consultar_clima_desde_menu(sesion):
+    exigir_gerente(sesion)
+
+    nombre = input("Ciudad o localidad del proyecto (Enter para volver): ").strip()
+    if not nombre:
+        return
+
+    try:
+        lugares = buscar_ubicaciones(nombre)
+        if not lugares:
+            print("No se encontró la ubicación. Prueba con otra ciudad o localidad.")
+            return
+
+        lugar = elegir_ubicacion(lugares)
+        if lugar is None:
+            return
+
+        clima = consultar_clima(lugar.latitud, lugar.longitud)
+
+    except (ConnectionError, ValueError) as error:
+        print(error)
+        return
+
+    temperatura = f"{clima.temperatura_c:.1f} °C".replace(".", ",")
+    humedad = f"{clima.humedad_porcentaje} %"
+    encabezado = f"{'Temperatura':>12} | {'Humedad':>8} | Estado del tiempo"
+
+    print(f"Ubicación: {lugar.nombre}")
+    print(encabezado)
+    print("-" * len(encabezado))
+    print(f"{temperatura:>12} | {humedad:>8} | {clima.estado_tiempo}")

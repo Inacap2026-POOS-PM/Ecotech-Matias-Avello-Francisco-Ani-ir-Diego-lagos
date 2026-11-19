@@ -10,7 +10,7 @@ def mostrar_error_supabase(error, conexion=None):
     estado = error.sqlstate
     if estado == "23505":
         print("Ese usuario ya existe o el empleado ya tiene una cuenta.")
-    elif estado == "23503":
+    elif estado in ("23503", "23001"):
         print("Revise los registros relacionados: el ID no existe o el registro todavia esta en uso.")
     elif estado in ("23514", "23502", "22001", "22003", "22007"):
         print("Un dato no cumple las restricciones de la base. Revise los valores ingresados.")
