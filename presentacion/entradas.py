@@ -105,24 +105,38 @@ def pedir_rol(conexion=None, id_empleado=None):
                 continue
         return rol
 
-def pedir_empleado(id_empleado, conexion=None):
+def pedir_empleado(id_empleado, conexion=None, rol_fijo=None):
     nombre = pedir_dato("Nombre: ", validar_nombre, revisar_formato=True)
     direccion = pedir_dato("Dirección: ", validar_direccion, revisar_formato=True)
     telefono = pedir_dato("Teléfono (12 en total: + y 11 números): ", validar_telefono, revisar_formato=True)
     correo = pedir_dato("Correo (debe terminar en @gmail.com): ", validar_correo, revisar_formato=True)
     fecha = pedir_dato("Inicio del contrato (AAAA-MM-DD): ", validar_fecha)
     salario = pedir_dato("Salario, usando punto para los decimales: ", validar_salario)
-    rol = pedir_rol(conexion, id_empleado)
+    if rol_fijo is None:
+        rol = pedir_rol(conexion, id_empleado)
+    else:
+        rol = rol_fijo
     return Empleado(
         id_empleado, nombre, direccion, telefono, correo, fecha, salario, rol
     )
 
+def pedir_credenciales_nuevas():
+    nombre = pedir_dato(
+        "Elige tu nombre de usuario: ",
+        validar_nombre_usuario,
+        revisar_formato=True
+    )
+    contrasena = pedir_dato(
+        "Elige tu contraseña (8 a 128 caracteres): ",
+        validar_contrasena,
+        ocultar=True
+    )
+    return nombre, contrasena
+
 def pedir_cuenta(correo, servicio):
-    nombre = pedir_dato("Nombre de usuario: ", validar_nombre_usuario, revisar_formato=True)
-    print("La contraseña admite mayúsculas, minúsculas, números y símbolos permitidos (8 a 128 caracteres).")
-    print("No se permiten comillas, paréntesis, barras (/ o \\), corchetes ni llaves.")
-    contrasena = pedir_dato("Contraseña de la cuenta: ", validar_contrasena, ocultar=True)
+    nombre, contrasena = pedir_credenciales_nuevas()
     return CuentaUsuario(nombre, correo, servicio, contrasena)
+
 
 def _registros_para_vincular(conexion, entidad, solo_gerentes):
     if entidad == "EMPLEADO":

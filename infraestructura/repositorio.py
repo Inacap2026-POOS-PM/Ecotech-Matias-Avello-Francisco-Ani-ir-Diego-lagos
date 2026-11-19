@@ -1,4 +1,6 @@
+import hashlib
 import json
+import secrets
 
 from psycopg import Error
 from psycopg.sql import SQL, Identifier, Placeholder
@@ -15,7 +17,8 @@ from dominio import (
 from validaciones import (
     validar_id,
     validar_rol,
-    validar_horas_adicionales
+    validar_horas_adicionales,
+    validar_nombre_usuario
 )
 
 from infraestructura.conexion import configuracion_entidad
@@ -111,85 +114,50 @@ def registrar_historial(
     ))
 
 
+def insertar_ficha_empleado(cursor, empleado):
+    cursor.execute("""
+        INSERT INTO empleado (
+            nombre, direccion, telefono, correo, fecha_inicio, salario, rol
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id_empleado
+    """, (
+        empleado.get_nombre(),
+        empleado.get_direccion(),
+        empleado.get_telefono(),
+        empleado.get_correo(),
+        empleado.get_fecha_inicio(),
+        empleado.get_salario(),
+        empleado.get_rol()
+    ))
+
+    id_empleado = cursor.fetchone()["id_empleado"]
+    registrar_historial(
+        cursor, "AGREGAR", "EMPLEADO", id_empleado, "Empleado creado.",
+        nuevos=leer_empleado(cursor, id_empleado)
+    )
+    return id_empleado
+
+
 def agregar_empleado(conexion, empleado):
     cuenta = empleado.get_cuenta_usuario()
-
     if cuenta is None:
-        raise ValueError(
-            "Debe asignar una cuenta antes de guardar el empleado."
-        )
+        raise ValueError("Debe asignar una cuenta antes de guardar el empleado.")
 
-    token = cuenta.get_contrasena_cifrada()
-    cursor = conexion.cursor(row_factory=dict_row)
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        id_empleado = insertar_ficha_empleado(cursor, empleado)
+        agregar_cuenta(conexion, id_empleado, cuenta)
+        return id_empleado
 
-    try:
-        with conexion.transaction():
-            cursor.execute("""
-                INSERT INTO empleado
-                (
-                    nombre,
-                    direccion,
-                    telefono,
-                    correo,
-                    fecha_inicio,
-                    salario,
-                    rol
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id_empleado
-            """, (
-                empleado.get_nombre(),
-                empleado.get_direccion(),
-                empleado.get_telefono(),
-                empleado.get_correo(),
-                empleado.get_fecha_inicio(),
-                empleado.get_salario(),
-                empleado.get_rol()
-            ))
 
-            id_nuevo = cursor.fetchone()["id_empleado"]
+def registrar_empleado_invitado(conexion, empleado):
+    if empleado.get_rol() != "Empleado":
+        raise ValueError("Solo los empleados pueden registrarse por invitación.")
 
-            cursor.execute("""
-                INSERT INTO cuenta_usuario
-                (
-                    id_empleado,
-                    nombre_usuario,
-                    correo,
-                    contrasena_cifrada
-                )
-                VALUES (%s, %s, %s, %s)
-            """, (
-                id_nuevo,
-                cuenta.get_nombre(),
-                cuenta.get_correo(),
-                token
-            ))
-
-            datos_empleado = leer_empleado(cursor, id_nuevo)
-            datos_cuenta = leer_cuenta(cursor, id_nuevo)
-
-            registrar_historial(
-                cursor,
-                "AGREGAR",
-                "EMPLEADO",
-                id_nuevo,
-                "Empleado creado.",
-                nuevos=datos_empleado
-            )
-
-            registrar_historial(
-                cursor,
-                "AGREGAR",
-                "CUENTA_USUARIO",
-                id_nuevo,
-                "Cuenta creada con contraseña cifrada.",
-                nuevos=datos_cuenta
-            )
-
-            return id_nuevo
-
-    finally:
-        cursor.close()
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        id_empleado = insertar_ficha_empleado(cursor, empleado)
+        codigo = emitir_invitacion(cursor, id_empleado)
+        return id_empleado, codigo
 
 
 def consultar_empleados(conexion):
@@ -1351,7 +1319,90 @@ def contar_cuentas(conexion):
     finally:
         cursor.close()
 
+def huella_invitacion(codigo):
+    return hashlib.sha256(codigo.encode("utf-8")).hexdigest()
 
+
+def emitir_invitacion(cursor, id_empleado):
+    codigo = secrets.token_urlsafe(18)
+
+    cursor.execute("""
+        UPDATE empleado
+        SET invitacion_hash = %s,
+            invitacion_vence = CURRENT_TIMESTAMP + INTERVAL '24 hours'
+        WHERE id_empleado = %s
+    """, (huella_invitacion(codigo), id_empleado))
+
+    return codigo
+
+
+def generar_invitacion(conexion, id_empleado):
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        empleado = leer_empleado(cursor, id_empleado)
+
+        if empleado is None or empleado["rol"] != "Empleado":
+            raise ValueError("Selecciona la ficha de un empleado.")
+
+        if leer_cuenta(cursor, id_empleado) is not None:
+            raise ValueError("Este empleado ya tiene una cuenta.")
+
+        return emitir_invitacion(cursor, id_empleado)
+
+def activar_cuenta_empleado(conexion, codigo, nombre, contrasena, servicio):
+    nombre = validar_nombre_usuario(nombre, revisar_formato=True)
+
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        cursor.execute("""
+            UPDATE empleado AS e
+            SET invitacion_hash = NULL,
+                invitacion_vence = NULL
+            WHERE e.invitacion_hash = %s
+              AND e.invitacion_vence > CURRENT_TIMESTAMP
+              AND e.rol = 'Empleado'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM cuenta_usuario AS c
+                  WHERE c.id_empleado = e.id_empleado
+              )
+            RETURNING e.id_empleado, e.correo
+        """, (huella_invitacion(codigo),))
+
+        empleado = cursor.fetchone()
+        if empleado is None:
+            raise ValueError("La invitación es incorrecta, venció o ya se utilizó.")
+
+        cuenta = CuentaUsuario(nombre, empleado["correo"], servicio, contrasena)
+        return agregar_cuenta(conexion, empleado["id_empleado"], cuenta)
+
+def primer_gerente_pendiente(conexion):
+    with conexion.cursor() as cursor:
+        cursor.execute("""
+            SELECT NOT EXISTS (
+                SELECT 1 FROM cuenta_usuario
+            ) AND NOT EXISTS (
+                SELECT 1
+                FROM historial_cambios
+                WHERE entidad = 'CUENTA_USUARIO'
+            )
+        """)
+        return cursor.fetchone()[0]
+
+
+def crear_primer_gerente(conexion, empleado):
+    if empleado.get_rol() != "Gerente":
+        raise ValueError("La primera cuenta debe tener el rol Gerente.")
+
+    with conexion.transaction(), conexion.cursor() as cursor:
+        cursor.execute("""
+            LOCK TABLE empleado, cuenta_usuario IN SHARE ROW EXCLUSIVE MODE
+        """)
+
+        if not primer_gerente_pendiente(conexion):
+            return False
+
+        agregar_empleado(conexion, empleado)
+        return True
+    
 def empleado_dirige_departamento(conexion, id_empleado):
     cursor = conexion.cursor()
 

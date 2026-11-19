@@ -22,12 +22,17 @@ from infraestructura.repositorio import (
     consultar_empleados,
     buscar_empleado,
     actualizar_empleado,
+    activar_cuenta_empleado,
     eliminar_empleado,
     consultar_cuentas,
+    registrar_empleado_invitado,
+    generar_invitacion,
     agregar_cuenta,
     actualizar_cuenta,
     eliminar_cuenta,
     comprobar_acceso,
+    primer_gerente_pendiente,
+    crear_primer_gerente,
     consultar_datos_empleado,
     consultar_horas_empleado,
     buscar_registro,
@@ -52,7 +57,9 @@ from dominio.informe import (
 from presentacion.entradas import (
     pedir_id,
     pedir_dato,
+    pedir_contrasena,
     pedir_empleado,
+    pedir_credenciales_nuevas,
     pedir_cuenta,
     pedir_id_vinculado,
     pedir_registro
@@ -211,6 +218,10 @@ def sumar_horas_desde_menu(conexion):
     else:
         print('Horas guardadas en Base de datos: {}. Cambio registrado.'.format(total))
 
+def exigir_sesion(sesion):
+    if sesion is None or sesion.get("rol") not in ("Gerente", "Empleado"):
+        raise PermissionError("Inicia sesión con una cuenta de EcoTech.")
+
 def exigir_gerente(sesion):
     if sesion is None or sesion.get("rol") != "Gerente":
         raise PermissionError(
@@ -252,11 +263,23 @@ def menu_entidad(conexion, entidad, sesion):
             mostrar_error_supabase(error, conexion)
 
 
+def mostrar_invitacion(id_empleado, codigo):
+    print(f"Ficha de empleado {id_empleado}. Código de invitación: {codigo}")
+    print("Entrégalo en privado al empleado. Vence en 24 horas.")
+
+
 def agregar_empleado_desde_menu(conexion, servicio):
     empleado = pedir_empleado(None, conexion)
-    empleado.asignar_cuenta(pedir_cuenta(empleado.get_correo(), servicio))
-    id_nuevo = agregar_empleado(conexion, empleado)
-    print("Empleado y cuenta guardados en Supabase. ID:", id_nuevo)
+
+    if empleado.get_rol() == "Empleado":
+        id_empleado, codigo = registrar_empleado_invitado(conexion, empleado)
+        mostrar_invitacion(id_empleado, codigo)
+        return
+
+    cuenta = pedir_cuenta(empleado.get_correo(), servicio)
+    empleado.asignar_cuenta(cuenta)
+    id_gerente = agregar_empleado(conexion, empleado)
+    print("Gerente y cuenta guardados. ID:", id_gerente)
 
 
 def listar_empleados_desde_menu(conexion):
@@ -297,6 +320,12 @@ def guardar_cuenta_desde_menu(conexion, servicio, actualizar=False):
     if empleado is None:
         print(EMPLEADO_NO_EXISTE)
         return
+    
+    if not actualizar and empleado["rol"] == "Empleado":
+        codigo = generar_invitacion(conexion, id_empleado)
+        mostrar_invitacion(id_empleado, codigo)
+        return
+    
     cuenta = pedir_cuenta(empleado["correo"], servicio)
     if actualizar:
         if actualizar_cuenta(conexion, id_empleado, cuenta):
@@ -311,13 +340,32 @@ def guardar_cuenta_desde_menu(conexion, servicio, actualizar=False):
         print("Cuenta guardada en Supabase. ID de cuenta:", id_cuenta)
 
 
+MENSAJE_ACCESO_INVALIDO = (
+    "Los datos ingresados no son correctos. Verifícalos e inténtalo de nuevo."
+)
+
+
+def autenticar_cuenta(conexion, servicio):
+    nombre = input("Nombre de usuario: ").strip()
+    contrasena = pedir_contrasena("Contraseña: ")
+
+    if not contrasena.strip():
+        return None
+
+    try:
+        nombre = validar_nombre_usuario(nombre, revisar_formato=True)
+        validar_contrasena(contrasena)
+    except ValueError:
+        return None
+
+    return comprobar_acceso(conexion, nombre, contrasena, servicio)
+
+
 def comprobar_acceso_desde_menu(conexion, servicio):
-    nombre = pedir_dato("Nombre de usuario: ", validar_nombre_usuario, revisar_formato=True)
-    contrasena = pedir_dato("Contraseña: ", validar_contrasena, ocultar=True)
-    if comprobar_acceso(conexion, nombre, contrasena, servicio):
+    if autenticar_cuenta(conexion, servicio):
         print("Acceso autorizado.")
     else:
-        print("Acceso rechazado.")
+        print(MENSAJE_ACCESO_INVALIDO)
 
 
 def listar_cuentas_desde_menu(conexion):
@@ -346,6 +394,7 @@ def eliminar_cuenta_desde_menu(conexion):
 
 
 def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
+    exigir_gerente(sesion)
     acciones = {
         "1": (agregar_empleado_desde_menu, (conexion, servicio)),
         "2": (listar_empleados_desde_menu, (conexion,)),
@@ -386,6 +435,8 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         mostrar_error_supabase(error, conexion)
 
 def menu_empleado(conexion, sesion):
+    
+    exigir_sesion(sesion)
     id_empleado = sesion["id_empleado"]
 
     while True:
@@ -393,6 +444,8 @@ def menu_empleado(conexion, sesion):
         print("Usuario:", sesion["nombre_usuario"])
         print("1. Consultar mis datos")
         print("2. Consultar mis horas de trabajo")
+        print("3. Consultar clima del proyecto")
+        print("4. Consultar precio del dólar")
         print("0. Cerrar sesión")
 
         opcion = input("Seleccione una opción: ").strip()
@@ -435,6 +488,12 @@ def menu_empleado(conexion, sesion):
                     print("Horas:", registro["horas_trabajadas"])
                     print("Tareas:", registro["tareas_realizadas"])
 
+            elif opcion == "3":
+                consultar_clima_desde_menu(sesion)
+
+            elif opcion == "4":
+                consultar_dolar_desde_menu(sesion)
+            
             elif opcion == "0":
                 print("Sesión finalizada.")
                 return
@@ -444,28 +503,71 @@ def menu_empleado(conexion, sesion):
 
         except ValueError as error:
             print("Dato inválido:", error)
+
+def registrar_primer_gerente(conexion, servicio):
+    print("\nECOTECH - REGISTRO DEL PRIMER GERENTE")
+
+    empleado = pedir_empleado(None, conexion, rol_fijo="Gerente")
+    cuenta = pedir_cuenta(empleado.get_correo(), servicio)
+    empleado.asignar_cuenta(cuenta)
+
+    if crear_primer_gerente(conexion, empleado):
+        print("Cuenta de gerente creada. Ya puedes iniciar sesión.")
+    else:
+        print("El primer gerente ya fue registrado.")
+
+
+def registrar_cuenta_empleado(conexion, servicio):
+    codigo = input("Código de invitación (Enter para volver): ").strip()
+    if not codigo:
+        return
+
+    nombre, contrasena = pedir_credenciales_nuevas()
+    activar_cuenta_empleado(conexion, codigo, nombre, contrasena, servicio)
+    print("Cuenta de empleado creada. Elige Iniciar sesión para entrar.")
+
+
 def menu(conexion, servicio):
+    while True:
+        alta_disponible = primer_gerente_pendiente(conexion)
+
+        print("\nECOTECH - ACCESO")
+        print("1. Iniciar sesión")
+        if alta_disponible:
+            print("2. Crear primer gerente")
+        else:
+            print("2. Crear cuenta de empleado con invitación")
+        print("0. Salir")
+
+        opcion = input("Seleccione una opción: ").strip()
+
+        if opcion == "0":
+            return
+
+        if opcion == "1":
+            iniciar_sesion(conexion, servicio)
+        elif opcion == "2":
+            try:
+                if alta_disponible:
+                    registrar_primer_gerente(conexion, servicio)
+                else:
+                    registrar_cuenta_empleado(conexion, servicio)
+            except ValueError as error:
+                print(error)
+            except (IntegrityError, DataError) as error:
+                mostrar_error_supabase(error, conexion)
+        else:
+            print("Opción inválida.")
+
+def iniciar_sesion(conexion, servicio):
     print("\nECOTECH - INICIO DE SESIÓN")
 
-    nombre = pedir_dato(
-        "Nombre de usuario: ",
-        validar_nombre_usuario,
-        revisar_formato=True
-    )
-
-    contrasena = pedir_dato(
-        "Contraseña: ",
-        validar_contrasena,
-        ocultar=True
-    )
-
-    sesion = comprobar_acceso(
-        conexion, nombre, contrasena, servicio
-    )
+    sesion = autenticar_cuenta(conexion, servicio)
 
     if sesion is None:
-        print("Usuario o contraseña incorrectos.")
+        print(MENSAJE_ACCESO_INVALIDO)
         return
+
 
     print("\nBienvenido a EcoTech.")
 
@@ -485,14 +587,14 @@ def menu_gerente(conexion, servicio, sesion):
 
     while True:
         print("\nCRUD DE EMPLEADOS Y CUENTAS - SUPABASE")
-        print("1. Agregar empleado y cuenta")
+        print("1. Registrar trabajador (Empleado o Gerente)")
         print("2. Consultar empleados")
         print("3. Actualizar empleado")
         print("4. Eliminar empleado y su cuenta")
         print("5. Actualizar cuenta de usuario")
         print("6. Comprobar acceso")
         print("7. Consultar cuentas de usuario")
-        print("8. Agregar cuenta a un empleado existente")
+        print("8. Generar invitación para empleado o crear cuenta de gerente existente")
         print("9. Eliminar solamente una cuenta")
         print("10. Consultar historial de cambios")
         print("11. Gestionar proyectos")
@@ -520,23 +622,24 @@ def mostrar_cotizacion_dolar(cotizacion):
     print(f"{cotizacion.moneda:<6} | {precio:>18} | {fecha}")
 
 def consultar_dolar_desde_menu(sesion):
-    exigir_gerente(sesion)
+    exigir_sesion(sesion)
 
     try:
         cotizacion = consultar_dolar()
     except (ConnectionError, ValueError) as error:
         print(error)
-        mostrar_respaldo_dolar()
-        return
+        cotizacion = mostrar_respaldo_dolar()
+        if cotizacion is None:
+            return
+    else:
+        mostrar_cotizacion_dolar(cotizacion)
+        try:
+            guardar_cotizacion(cotizacion)
+        except OSError as error:
+            print(error)
 
-    mostrar_cotizacion_dolar(cotizacion)
-    
-
-    try:
-        guardar_cotizacion(cotizacion)
-    except OSError as error:
-        print(error)
-    solicitar_monto_usd(cotizacion)
+    if sesion["rol"] == "Gerente":
+        solicitar_monto_usd(cotizacion)
 
 
 def mostrar_respaldo_dolar():
@@ -557,7 +660,7 @@ def mostrar_respaldo_dolar():
 
     print(f"COTIZACIÓN DE RESPALDO | Obtenida el {fecha_local} | Antigüedad: {minutos} min")
     mostrar_cotizacion_dolar(cotizacion)
-    solicitar_monto_usd(cotizacion)
+    return cotizacion
 
 def solicitar_monto_usd(cotizacion):
     while True:
@@ -596,7 +699,7 @@ def elegir_ubicacion(lugares):
 
 
 def consultar_clima_desde_menu(sesion):
-    exigir_gerente(sesion)
+    exigir_sesion(sesion)
 
     nombre = input("Ciudad o localidad del proyecto (Enter para volver): ").strip()
     if not nombre:

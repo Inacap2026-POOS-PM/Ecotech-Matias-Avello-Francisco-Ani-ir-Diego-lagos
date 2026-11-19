@@ -182,6 +182,10 @@ def validar_contrasena(contrasena):
     contrasena = validar_cadena(contrasena, 'La contrasena')
     if not contrasena.strip():
         raise ValueError("La contraseña no puede estar vacía.")
+    
+    if not contrasena.strip():
+        raise ValueError("La contraseña no puede estar vacía ni contener solo espacios.")
+    
     if len(contrasena) < 8 or len(contrasena) > 128:
         raise ValueError("La contrasena debe tener entre 8 y 128 caracteres.")
     prohibidos = "\"'()/\\[]{}“”‘’«»"
