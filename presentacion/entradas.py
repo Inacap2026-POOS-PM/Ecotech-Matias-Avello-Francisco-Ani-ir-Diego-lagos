@@ -8,6 +8,7 @@ from dominio import (
 )
 from validaciones import (
     validar_nombre,
+    validar_rut,
     validar_direccion,
     validar_telefono,
     validar_correo,
@@ -107,8 +108,17 @@ def pedir_rol(conexion=None, id_empleado=None):
 
 def pedir_empleado(id_empleado, conexion=None, rol_fijo=None):
     nombre = pedir_dato("Nombre: ", validar_nombre, revisar_formato=True)
+    
+    rut = pedir_dato(
+        "RUT sin puntos y con guion (ejemplo 12345678-5): ",
+        validar_rut,
+    )
     direccion = pedir_dato("Dirección: ", validar_direccion, revisar_formato=True)
-    telefono = pedir_dato("Teléfono (12 en total: + y 11 números): ", validar_telefono, revisar_formato=True)
+    telefono = pedir_dato(
+        "(ejemplo +56912345678): ",
+        validar_telefono,
+        revisar_formato=True
+    )
     correo = pedir_dato("Correo (debe terminar en @gmail.com): ", validar_correo, revisar_formato=True)
     fecha = pedir_dato("Inicio del contrato (AAAA-MM-DD): ", validar_fecha)
     salario = pedir_dato("Salario, usando punto para los decimales: ", validar_salario)
@@ -116,8 +126,10 @@ def pedir_empleado(id_empleado, conexion=None, rol_fijo=None):
         rol = pedir_rol(conexion, id_empleado)
     else:
         rol = rol_fijo
+   
     return Empleado(
-        id_empleado, nombre, direccion, telefono, correo, fecha, salario, rol
+        id_empleado, nombre, direccion, telefono, correo,
+        fecha, salario, rol, rut=rut,
     )
 
 def pedir_credenciales_nuevas():

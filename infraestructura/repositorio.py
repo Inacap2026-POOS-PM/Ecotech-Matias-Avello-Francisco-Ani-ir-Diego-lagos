@@ -15,8 +15,10 @@ from dominio import (
 )
 
 from validaciones import (
+    validar_correo,
     validar_id,
     validar_rol,
+    validar_telefono,
     validar_horas_adicionales,
     validar_nombre_usuario
 )
@@ -124,8 +126,8 @@ def insertar_ficha_empleado(cursor, empleado):
     """, (
         empleado.get_nombre(),
         empleado.get_direccion(),
-        empleado.get_telefono(),
-        empleado.get_correo(),
+        validar_telefono(empleado.get_telefono(), revisar_formato=True),
+        validar_correo(empleado.get_correo(), revisar_formato=True),
         empleado.get_fecha_inicio(),
         empleado.get_salario(),
         empleado.get_rol()
@@ -225,6 +227,8 @@ def actualizar_empleado(conexion, empleado):
                 REGISTRO_NO_ENCONTRADO
             )
 
+        correo = validar_correo(empleado.get_correo(), revisar_formato=True)
+        
         cuenta_anterior = leer_cuenta(
             cursor,
             empleado.get_id()
@@ -257,8 +261,8 @@ def actualizar_empleado(conexion, empleado):
         """, (
             empleado.get_nombre(),
             empleado.get_direccion(),
-            empleado.get_telefono(),
-            empleado.get_correo(),
+            validar_telefono(empleado.get_telefono(), revisar_formato=True),
+            correo,
             empleado.get_fecha_inicio(),
             empleado.get_salario(),
             empleado.get_rol(),
@@ -270,7 +274,7 @@ def actualizar_empleado(conexion, empleado):
             SET correo = %s
             WHERE id_empleado = %s
         """, (
-            empleado.get_correo(),
+            correo,
             empleado.get_id()
         ))
 
@@ -419,7 +423,8 @@ def agregar_cuenta(conexion, id_empleado, cuenta):
             if empleado is None:
                 return None
 
-            if cuenta.get_correo() != empleado["correo"]:
+            correo = validar_correo(cuenta.get_correo(), revisar_formato=True)
+            if correo != empleado["correo"]:
                 raise ValueError(
                     "La cuenta debe usar el correo del empleado."
                 )
@@ -437,7 +442,7 @@ def agregar_cuenta(conexion, id_empleado, cuenta):
             """, (
                 id_empleado,
                 cuenta.get_nombre(),
-                cuenta.get_correo(),
+                correo,
                 token
             ))
 

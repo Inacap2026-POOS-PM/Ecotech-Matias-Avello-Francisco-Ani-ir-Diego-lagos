@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-
+import re
 
 def validar_cadena(valor, nombre_campo):
     if not isinstance(valor, str):
@@ -33,18 +33,53 @@ def validar_direccion(direccion, revisar_formato=False):
 
 
 def validar_telefono(telefono, revisar_formato=False):
-    telefono = validar_cadena(telefono, 'El telefono')
-    telefono = telefono.strip()
+    telefono = validar_cadena(telefono, "El teléfono").strip()
+
+    if not telefono:
+        raise ValueError("Ingresa el celular. Ejemplo: +56912345678.")
+
     if revisar_formato:
-        if not telefono.startswith("+") or len(telefono) != 12:
-            raise ValueError("El telefono debe tener 12 caracteres en total: + al comienzo y 11 numeros despues.")
-        numeros = telefono[1:]
-        if not numeros.isascii() or not numeros.isdecimal():
-            raise ValueError("Despues del + solo se permiten numeros del 0 al 9, sin espacios ni otros simbolos.")
-    elif not telefono or len(telefono) > 20:
-        raise ValueError("El telefono debe tener entre 1 y 20 caracteres.")
+        numeros = telefono[4:]
+        if (
+            not telefono.startswith("+569")
+            or len(numeros) != 8
+            or not numeros.isascii()
+            or not numeros.isdecimal()
+        ):
+            raise ValueError(
+                "Ingresa +569 seguido de 8 dígitos, sin espacios ni guiones. "
+                "Ejemplo: +56912345678."
+            )
+
     return telefono
 
+def validar_rut(rut):
+    rut = validar_cadena(rut, "El RUT").strip().upper()
+
+    if not re.fullmatch(r"[1-9][0-9]{0,7}-[0-9K]", rut):
+        raise ValueError(
+            "Ingresa el RUT sin puntos y con guion. Ejemplo: 12345678-5."
+        )
+
+    numero, verificador = rut.split("-")
+    suma = 0
+
+    for posicion, digito in enumerate(reversed(numero)):
+        factor = 2 + posicion % 6
+        suma += int(digito) * factor
+
+    resultado = 11 - (suma % 11)
+    if resultado == 11:
+        esperado = "0"
+    elif resultado == 10:
+        esperado = "K"
+    else:
+        esperado = str(resultado)
+
+    if verificador != esperado:
+        raise ValueError("El dígito verificador no coincide. Revisa el RUT.")
+
+    return rut
 
 def validar_correo(correo, revisar_formato=False):
     correo = validar_cadena(correo, 'El correo')

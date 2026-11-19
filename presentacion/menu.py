@@ -3,6 +3,7 @@ from infraestructura.apis.dolar import consultar_dolar
 from infraestructura.apis.clima import buscar_ubicaciones, consultar_clima
 from datetime import datetime, timezone
 from infraestructura.respaldo_dolar import guardar_cotizacion, leer_respaldo
+from infraestructura.respaldo_clima import guardar_clima, leer_respaldos_clima
 from psycopg import (
     IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError
 )
@@ -697,6 +698,32 @@ def elegir_ubicacion(lugares):
 
         print("Elige uno de los números de la lista.")
 
+def recuperar_clima(nombre, lugar):
+    try:
+        respaldos = leer_respaldos_clima(nombre, lugar)
+    except OSError as error:
+        print(error)
+        return None
+
+    if not respaldos:
+        print("Todavía no hay clima guardado para esa ubicación.")
+        return None
+
+    if len(respaldos) > 1:
+        print("Elige una de las ubicaciones guardadas:")
+
+    elegido = elegir_ubicacion(list(respaldos))
+    if elegido is None:
+        return None
+
+    clima, fecha = respaldos[elegido]
+    antiguedad = datetime.now(timezone.utc) - fecha
+    minutos = max(0, int(antiguedad.total_seconds() // 60))
+    hora_local = fecha.astimezone().strftime("%d/%m/%Y %H:%M")
+
+    print(f"CLIMA DE RESPALDO | Obtenido el {hora_local} | Antigüedad: {minutos} min")
+    return elegido, clima
+
 
 def consultar_clima_desde_menu(sesion):
     exigir_sesion(sesion)
@@ -705,6 +732,8 @@ def consultar_clima_desde_menu(sesion):
     if not nombre:
         return
 
+    lugar = None
+    
     try:
         lugares = buscar_ubicaciones(nombre)
         if not lugares:
@@ -719,8 +748,18 @@ def consultar_clima_desde_menu(sesion):
 
     except (ConnectionError, ValueError) as error:
         print(error)
-        return
+        respaldo = recuperar_clima(nombre, lugar)
+        if respaldo is None:
+            return
 
+        lugar, clima = respaldo
+
+    else:
+        try:
+            guardar_clima(nombre, lugar, clima)
+        except OSError as error:
+            print(error)
+    
     temperatura = f"{clima.temperatura_c:.1f} °C".replace(".", ",")
     humedad = f"{clima.humedad_porcentaje} %"
     encabezado = f"{'Temperatura':>12} | {'Humedad':>8} | Estado del tiempo"
