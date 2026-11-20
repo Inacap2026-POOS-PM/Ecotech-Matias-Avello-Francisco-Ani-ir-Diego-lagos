@@ -2,7 +2,7 @@ from presentacion.cotizaciones import consultar_pago
 from infraestructura.acceso_local import recordar, olvidar, verificar
 from infraestructura.conexion_local import ErrorBaseLocal
 from infraestructura.repositorio import comprobar_acceso
-from presentacion.entradas import pedir_dato
+from presentacion.entradas import pedir_contrasena, pedir_dato
 from validaciones import validar_contrasena, validar_nombre_usuario
 
 
@@ -33,15 +33,22 @@ def iniciar_sesion(conexion, servicio, menu_gerente, menu_empleado):
 
 
 def iniciar_sesion_local():
-    usuario, clave = pedir_credenciales()
-    try:
-        permitido = verificar(usuario, clave)
-    except (ErrorBaseLocal, ValueError):
-        print("No se pudo verificar la cuenta en este equipo.")
-        return
-    if not permitido:
-        print("Acceso local rechazado. Verifique sus credenciales o vuelva a conectarse.")
-        return
+    usuario = pedir_dato("Nombre de usuario: ", validar_nombre_usuario, revisar_formato=True)
+
+    for intento in range(1, 4):
+        clave = pedir_contrasena("Contraseña: ")
+        try:
+            if verificar(usuario, clave):
+                break
+        except (ErrorBaseLocal, ValueError):
+            print("No se pudo verificar la cuenta en este equipo.")
+            return
+
+        if intento == 3:
+            print("Contraseña incorrecta o acceso local no disponible. Se agotaron los 3 intentos.")
+            return
+
+        print(f"Vuelva a ingresar la contraseña. Intentos restantes: {3 - intento}.")
     print("Sesión local de solo lectura:", usuario)
     while True:
         opcion = input("1. Consultar cotizacion guardada | 0. Cerrar sesion: ").strip()
