@@ -19,6 +19,7 @@ from presentacion.entradas import (
 )
 from presentacion.errores import mostrar_error_supabase
 from presentacion.menu import menu
+from presentacion.sesion import iniciar_sesion_local
 
 
 def confirmar_reintento():
@@ -50,8 +51,7 @@ def conectar_con_reintentos():
             )
 
         except ConnectionError as error:
-            print(error)
-            return None
+            raise
 
         except PermissionError as error:
             print(error)
@@ -109,7 +109,12 @@ def iniciar_programa():
         load_dotenv(carpeta_proyecto / ".env")
         print("ECOTECH - SUPABASE (POSTGRESQL)")
 
-        conexion = conectar_con_reintentos()
+        try:
+            conexion = conectar_con_reintentos()
+        except ConnectionError as error:
+            print(error)
+            iniciar_sesion_local()
+            return
 
         if conexion is None:
             return
