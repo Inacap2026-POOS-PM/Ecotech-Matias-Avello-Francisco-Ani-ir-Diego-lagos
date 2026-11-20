@@ -521,9 +521,7 @@ def menu_empleado(conexion, sesion):
 
         opcion = pedir_opcion_con_sesion(conexion, sesion, {"3", "4"})
         
-        if opcion != "0" and not sesion_vigente(conexion, sesion):
-            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
-            return
+       
 
         try:
             if opcion == "1":
@@ -766,15 +764,7 @@ def menu_gerente(conexion, sesion):
 
         ejecutar_opcion_menu(opcion, conexion, sesion)
 
-        opcion = pedir_opcion_con_sesion(conexion, sesion, {"8", "9"})
-        if opcion != "0" and not sesion_vigente(conexion, sesion):
-            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
-            return
-        
-        if opcion == "0":
-            return
-
-        ejecutar_opcion_menu(opcion, conexion, sesion)
+       
 
 def mostrar_cotizacion_dolar(cotizacion):
     precio = f"{cotizacion.venta:.2f}".replace(".", ",")
