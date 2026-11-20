@@ -187,3 +187,14 @@ def validar_contrasena(contrasena):
         if caracter in prohibidos:
             raise ValueError("La contrasena no admite comillas, parentesis, barras (/ o \\), corchetes ni llaves.")
     return contrasena
+
+
+def validar_ciudad(ciudad):
+    ciudad = validar_cadena(ciudad, "La ciudad").strip()
+    if not 2 <= len(ciudad) <= 60:
+        raise ValueError("La ciudad debe tener entre 2 y 60 caracteres.")
+    # Solo se permiten letras (con tildes y ñ), espacios, guiones, puntos y apóstrofes
+    letras = ciudad.replace(" ", "").replace("-", "").replace("'", "").replace(".", "")
+    if not letras.isalpha():
+        raise ValueError("La ciudad solo puede tener letras, espacios, guiones, puntos o apostrofes.")
+    return ciudad
