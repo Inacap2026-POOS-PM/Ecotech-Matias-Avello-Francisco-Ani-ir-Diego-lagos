@@ -273,6 +273,13 @@ def menu_entidad(conexion, entidad, sesion):
         if opcion == "0":
             return
         try:
+            
+            if not sesion_vigente(conexion, sesion):
+                print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+                return
+
+            ejecutar_accion(acciones, opcion, "Opción inválida. Elija una de las opciones mostradas.")
+            
             ejecutar_accion(acciones, opcion, "Opción inválida. Elija una de las opciones mostradas.")
         except ValueError as error:
             print("Dato inválido:", error)
@@ -665,9 +672,7 @@ def menu_administrador(conexion, sesion):
 
         opcion = input("Seleccione una opción: ").strip()
         
-        if opcion != "0" and not sesion_vigente(conexion, sesion):
-            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
-            return
+        
         if opcion == "0":
             return
 
