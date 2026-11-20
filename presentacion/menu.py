@@ -58,7 +58,8 @@ from infraestructura.repositorio import (
     guardar_tiempo
 )
 from infraestructura.conexion import (
-    configuracion_entidad
+    configuracion_entidad,
+    es_error_conexion,
 )
 from dominio.informe import (
     Informes
@@ -478,6 +479,32 @@ def ejecutar_opcion_menu(opcion, conexion, sesion):
     except (IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError) as error:
         mostrar_error_supabase(error, conexion)
 
+
+def pedir_opcion_con_sesion(conexion, sesion, consultas_publicas):
+    while True:
+        opcion = input("Seleccione una opción: ").strip()
+        if opcion == "0":
+            return opcion
+
+        try:
+            vigente = sesion_vigente(conexion, sesion)
+        except (OperationalError, InterfaceError) as error:
+            if not es_error_conexion(error, conexion):
+                raise
+
+            if opcion in consultas_publicas:
+                print("Sin conexión con Supabase. Puedes consultar el dólar y el clima.")
+                return opcion
+
+            print("Esta opción requiere Supabase. Elige dólar, clima o 0 para salir.")
+            continue
+
+        if vigente:
+            return opcion
+
+        print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+        return "0"
+
 def menu_empleado(conexion, sesion):
     
     exigir_sesion(sesion)
@@ -492,7 +519,7 @@ def menu_empleado(conexion, sesion):
         print("4. Consultar precio del dólar")
         print("0. Cerrar sesión")
 
-        opcion = input("Seleccione una opción: ").strip()
+        opcion = pedir_opcion_con_sesion(conexion, sesion, {"3", "4"})
         
         if opcion != "0" and not sesion_vigente(conexion, sesion):
             print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
@@ -732,7 +759,14 @@ def menu_gerente(conexion, sesion):
         print("9. Consultar clima del proyecto")
         print("0. Cerrar sesión")
 
-        opcion = input("Seleccione una opción: ").strip()
+        opcion = pedir_opcion_con_sesion(conexion, sesion, {"8", "9"})
+
+        if opcion == "0":
+            return
+
+        ejecutar_opcion_menu(opcion, conexion, sesion)
+
+        opcion = pedir_opcion_con_sesion(conexion, sesion, {"8", "9"})
         if opcion != "0" and not sesion_vigente(conexion, sesion):
             print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
             return
