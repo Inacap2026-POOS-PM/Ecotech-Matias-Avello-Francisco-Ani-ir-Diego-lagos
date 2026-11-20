@@ -1,6 +1,7 @@
 import json
 from infraestructura.apis.dolar import consultar_dolar
 from infraestructura.apis.clima import buscar_ubicaciones, consultar_clima
+from psycopg.errors import UniqueViolation
 from datetime import datetime, timezone
 from infraestructura.respaldo_dolar import guardar_cotizacion, leer_respaldo
 from infraestructura.respaldo_clima import guardar_clima, leer_respaldos_clima
@@ -8,7 +9,8 @@ from psycopg import (
     IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError
 )
 from dominio import (
-    Tiempo
+    Tiempo,
+    Empleado
 )
 from validaciones import (
     validar_fecha,
@@ -22,26 +24,32 @@ from infraestructura.repositorio import (
     agregar_empleado,
     consultar_empleados,
     buscar_empleado,
+    crear_ficha_con_invitacion,
+    contacto_pendiente_invitacion,
     actualizar_empleado,
     activar_cuenta_empleado,
     eliminar_empleado,
     consultar_cuentas,
     registrar_empleado_invitado,
     generar_invitacion,
+    sesion_vigente,
     agregar_cuenta,
     actualizar_cuenta,
     eliminar_cuenta,
     comprobar_acceso,
-    primer_gerente_pendiente,
-    crear_primer_gerente,
+    primer_administrador_pendiente,
+    crear_primer_administrador,
     consultar_datos_empleado,
     consultar_horas_empleado,
     buscar_registro,
     objeto_desde_fila,
     consultar_registros,
+    validar_rol_trabajador,
     guardar_registro,
+    cambiar_rol_trabajador,
     eliminar_registro,
     consultar_proyectos,
+    generar_invitacion,
     consultar_departamentos,
     consultar_asignaciones,
     registrar_horas_asignacion,
@@ -60,6 +68,9 @@ from presentacion.entradas import (
     pedir_dato,
     pedir_contrasena,
     pedir_empleado,
+    pedir_datos_contrato,
+    pedir_datos_contacto,
+    pedir_nombre_nuevo,
     pedir_credenciales_nuevas,
     pedir_cuenta,
     pedir_id_vinculado,
@@ -242,7 +253,10 @@ def menu_entidad(conexion, entidad, sesion):
         "5": (buscar_registro_desde_menu, (conexion, entidad)),
     }
     if entidad == "ASIGNACION":
+        
         acciones["6"] = (sumar_horas_desde_menu, (conexion,))
+        acciones["7"] = (pedir_y_guardar_tiempo, (conexion,))
+    
     while True:
         print("\nGESTIÓN DE " + entidad)
         print("1. Agregar")
@@ -252,6 +266,8 @@ def menu_entidad(conexion, entidad, sesion):
         print("5. Buscar por ID")
         if entidad == "ASIGNACION":
             print("6. Sumar horas trabajadas")
+            print("7. Registrar tiempo de trabajo")
+        
         print("0. Volver al menú principal")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
@@ -292,15 +308,44 @@ def listar_empleados_desde_menu(conexion):
 
 
 def actualizar_empleado_desde_menu(conexion):
-    id_empleado = pedir_id("ID del empleado a actualizar: ")
-    if buscar_empleado(conexion, id_empleado) is None:
+    id_empleado = pedir_id("ID del trabajador a actualizar: ")
+    ficha = buscar_empleado(conexion, id_empleado)
+
+    if ficha is None:
         print(EMPLEADO_NO_EXISTE)
         return
-    empleado = pedir_empleado(id_empleado, conexion)
+
+    nombre, rut, fecha_contrato, salario = pedir_datos_contrato()
+
+    direccion = telefono = correo = None
+    if ficha["correo"] is not None:
+        direccion, telefono, correo = pedir_datos_contacto()
+
+    empleado = Empleado(
+        id_empleado, nombre, direccion, telefono, correo,
+        fecha_contrato, salario, ficha["rol"], rut=rut,
+    )
+
     if actualizar_empleado(conexion, empleado):
-        print("Datos guardados en Supabase; los cambios quedan en el historial.")
+        print("Ficha guardada.")
     else:
         print(EMPLEADO_NO_EXISTE)
+
+
+def cambiar_rol_desde_menu(conexion):
+    id_empleado = pedir_id("ID del trabajador: ")
+    rol = pedir_dato("Nuevo rol (Empleado/Gerente): ", validar_rol_trabajador)
+
+    if cambiar_rol_trabajador(conexion, id_empleado, rol):
+        print("Rol actualizado a", rol)
+    else:
+        print("El trabajador ya tiene ese rol.")
+
+
+def renovar_invitacion_desde_menu(conexion):
+    id_empleado = pedir_id("ID del empleado: ")
+    codigo = generar_invitacion(conexion, id_empleado)
+    mostrar_invitacion(id_empleado, codigo)
 
 
 def eliminar_empleado_desde_menu(conexion):
@@ -394,32 +439,23 @@ def eliminar_cuenta_desde_menu(conexion):
         print("No existe una cuenta con ese ID.")
 
 
-def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
+def ejecutar_opcion_menu(opcion, conexion, sesion):
     exigir_gerente(sesion)
+
     acciones = {
-        "1": (agregar_empleado_desde_menu, (conexion, servicio)),
-        "2": (listar_empleados_desde_menu, (conexion,)),
-        "3": (actualizar_empleado_desde_menu, (conexion,)),
-        "4": (eliminar_empleado_desde_menu, (conexion,)),
-        "5": (guardar_cuenta_desde_menu, (conexion, servicio, True)),
-        "6": (comprobar_acceso_desde_menu, (conexion, servicio)),
-        "7": (listar_cuentas_desde_menu, (conexion,)),
-        "8": (guardar_cuenta_desde_menu, (conexion, servicio, False)),
-        "9": (eliminar_cuenta_desde_menu, (conexion,)),
-        "10": (mostrar_historial, (conexion,)),
-        "11": (menu_entidad, (conexion, "PROYECTO", sesion)),
-        "12": (menu_entidad, (conexion, "DEPARTAMENTO", sesion)),
-        "13": (menu_entidad, (conexion, "ASIGNACION", sesion)),
-        "14": (pedir_y_guardar_tiempo, (conexion,)),
-        "15": (mostrar_informes_desde_supabase, (conexion,)),
-        "16": (exportar_informe_desde_supabase, (conexion, "excel")),
-        "17": (exportar_informe_desde_supabase, (conexion, "pdf")),
-        "18": (consultar_dolar_desde_menu, (sesion,)),
-        "19": (consultar_clima_desde_menu, (sesion,)),
+        "1": (listar_empleados_desde_menu, (conexion,)),
+        "2": (menu_entidad, (conexion, "PROYECTO", sesion)),
+        "3": (menu_entidad, (conexion, "DEPARTAMENTO", sesion)),
+        "4": (menu_entidad, (conexion, "ASIGNACION", sesion)),
+        "5": (mostrar_informes_desde_supabase, (conexion,)),
+        "6": (exportar_informe_desde_supabase, (conexion, "excel")),
+        "7": (exportar_informe_desde_supabase, (conexion, "pdf")),
+        "8": (consultar_dolar_desde_menu, (sesion,)),
+        "9": (consultar_clima_desde_menu, (sesion,)),
     }
     
     try:
-        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 19.")
+        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 9.")
     except ValueError as error:
         print("Dato inválido:", error)
     except ConnectionError:
@@ -450,6 +486,10 @@ def menu_empleado(conexion, sesion):
         print("0. Cerrar sesión")
 
         opcion = input("Seleccione una opción: ").strip()
+        
+        if opcion != "0" and not sesion_vigente(conexion, sesion):
+            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+            return
 
         try:
             if opcion == "1":
@@ -505,37 +545,67 @@ def menu_empleado(conexion, sesion):
         except ValueError as error:
             print("Dato inválido:", error)
 
-def registrar_primer_gerente(conexion, servicio):
-    print("\nECOTECH - REGISTRO DEL PRIMER GERENTE")
+def registrar_primer_administrador(conexion, servicio):
+    print("\nECOTECH - REGISTRO DEL PRIMER ADMINISTRADOR")
 
-    empleado = pedir_empleado(None, conexion, rol_fijo="Gerente")
+    empleado = pedir_empleado(None, conexion, rol_fijo="Administrador")
     cuenta = pedir_cuenta(empleado.get_correo(), servicio)
     empleado.asignar_cuenta(cuenta)
 
-    if crear_primer_gerente(conexion, empleado):
-        print("Cuenta de gerente creada. Ya puedes iniciar sesión.")
+    if crear_primer_administrador(conexion, empleado):
+        print("Cuenta de administrador creada. Ya puedes iniciar sesión.")
     else:
-        print("El primer gerente ya fue registrado.")
+        print("El registro de la primera cuenta ya está cerrado.")
+
+
+def registrar_trabajador_con_codigo(conexion, sesion):
+    exigir_administrador(sesion)
+    nombre, rut, fecha_contrato, salario = pedir_datos_contrato()
+
+    id_empleado, codigo = crear_ficha_con_invitacion(
+        conexion, nombre, rut, fecha_contrato, salario
+    )
+    mostrar_invitacion(id_empleado, codigo)
 
 
 def registrar_cuenta_empleado(conexion, servicio):
-    codigo = input("Código de invitación (Enter para volver): ").strip()
-    if not codigo:
-        return
+    while True:
+        codigo = input("Código de invitación (Enter para volver): ").strip()
+        if not codigo:
+            return
 
-    nombre, contrasena = pedir_credenciales_nuevas()
-    activar_cuenta_empleado(conexion, codigo, nombre, contrasena, servicio)
-    print("Cuenta de empleado creada. Elige Iniciar sesión para entrar.")
+        pendiente = contacto_pendiente_invitacion(conexion, codigo)
+        if pendiente is not None:
+            break
+
+        print("El código es incorrecto, venció o ya fue utilizado.")
+
+    nombre, contrasena = pedir_credenciales_nuevas(conexion)
+    contacto = pedir_datos_contacto() if pendiente else None
+
+    while True:
+        try:
+            activar_cuenta_empleado(
+                conexion, codigo, nombre, contrasena, servicio,
+                contacto=contacto,
+            )
+            print("Cuenta creada. Ya puedes iniciar sesión.")
+            return
+        except UniqueViolation as error:
+            if error.diag.constraint_name != "cuenta_usuario_nombre_usuario_key":
+                raise
+            print("Ese nombre de usuario ya está en uso. Elige otro.")
+            nombre = pedir_nombre_nuevo(conexion)
 
 
 def menu(conexion, servicio):
     while True:
-        alta_disponible = primer_gerente_pendiente(conexion)
+        alta_disponible = primer_administrador_pendiente(conexion)
 
         print("\nECOTECH - ACCESO")
         print("1. Iniciar sesión")
         if alta_disponible:
-            print("2. Crear primer gerente")
+            print("2. Crear primer administrador")
         else:
             print("2. Crear cuenta de empleado con invitación")
         print("0. Salir")
@@ -550,7 +620,7 @@ def menu(conexion, servicio):
         elif opcion == "2":
             try:
                 if alta_disponible:
-                    registrar_primer_gerente(conexion, servicio)
+                    registrar_primer_administrador(conexion, servicio)
                 else:
                     registrar_cuenta_empleado(conexion, servicio)
             except ValueError as error:
@@ -559,6 +629,60 @@ def menu(conexion, servicio):
                 mostrar_error_supabase(error, conexion)
         else:
             print("Opción inválida.")
+
+def exigir_administrador(sesion):
+    if sesion is None or sesion.get("rol") != "Administrador":
+        raise PermissionError("Esta opción requiere una cuenta de administrador.")
+
+
+def menu_administrador(conexion, sesion):
+    exigir_administrador(sesion)
+
+    acciones = {
+        "1": (registrar_trabajador_con_codigo, (conexion, sesion)),
+        "2": (listar_empleados_desde_menu, (conexion,)),
+        "3": (actualizar_empleado_desde_menu, (conexion,)),
+        "4": (cambiar_rol_desde_menu, (conexion,)),
+        "5": (listar_cuentas_desde_menu, (conexion,)),
+        "6": (renovar_invitacion_desde_menu, (conexion,)),
+        "7": (eliminar_cuenta_desde_menu, (conexion,)),
+        "8": (eliminar_empleado_desde_menu, (conexion,)),
+        "9": (mostrar_historial, (conexion,)),
+    }
+
+    while True:
+        print("\nECOTECH - MENÚ DEL ADMINISTRADOR")
+        print("1. Registrar trabajador y generar invitación")
+        print("2. Consultar trabajadores")
+        print("3. Actualizar ficha de trabajador")
+        print("4. Cambiar rol de trabajador")
+        print("5. Consultar cuentas de usuario")
+        print("6. Renovar código de invitación")
+        print("7. Eliminar solo la cuenta de usuario")
+        print("8. Eliminar ficha del trabajador y su cuenta")
+        print("9. Consultar historial de cambios")
+        print("0. Cerrar sesión")
+
+        opcion = input("Seleccione una opción: ").strip()
+        
+        if opcion != "0" and not sesion_vigente(conexion, sesion):
+            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+            return
+        if opcion == "0":
+            return
+
+        try:
+            if not sesion_vigente(conexion, sesion):
+                print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+                return
+
+            ejecutar_accion(acciones, opcion, "Opción inválida.")
+
+        except ValueError as error:
+            print(error)
+        except (IntegrityError, DataError, OperationalError,
+                InterfaceError, ProgrammingError) as error:
+            mostrar_error_supabase(error, conexion)
 
 def iniciar_sesion(conexion, servicio):
     print("\nECOTECH - INICIO DE SESIÓN")
@@ -574,44 +698,44 @@ def iniciar_sesion(conexion, servicio):
 
     if sesion["rol"] == "Gerente":
         print("Acceso autorizado como Gerente.")
-        menu_gerente(conexion, servicio, sesion)
+        menu_gerente(conexion, sesion)
 
     elif sesion["rol"] == "Empleado":
         print("Acceso autorizado como Empleado.")
         menu_empleado(conexion, sesion)
 
+    elif sesion["rol"] == "Administrador":
+        print("Acceso autorizado como Administrador.")
+        menu_administrador(conexion, sesion)
+
     else:
         print("El rol de esta cuenta no está autorizado.")
 
-def menu_gerente(conexion, servicio, sesion):
+def menu_gerente(conexion, sesion):
     exigir_gerente(sesion)
 
     while True:
-        print("\nCRUD DE EMPLEADOS Y CUENTAS - SUPABASE")
-        print("1. Registrar trabajador (Empleado o Gerente)")
-        print("2. Consultar empleados")
-        print("3. Actualizar empleado")
-        print("4. Eliminar empleado y su cuenta")
-        print("5. Actualizar cuenta de usuario")
-        print("6. Comprobar acceso")
-        print("7. Consultar cuentas de usuario")
-        print("8. Generar invitación para empleado o crear cuenta de gerente existente")
-        print("9. Eliminar solamente una cuenta")
-        print("10. Consultar historial de cambios")
-        print("11. Gestionar proyectos")
-        print("12. Gestionar departamentos")
-        print("13. Gestionar asignaciones y horas")
-        print("14. Registrar tiempo ")
-        print("15. Generar informes de Supabase")
-        print("16. Guardar informe en Excel ")
-        print("17. Guardar informe en PDF")
-        print("18. Consultar dólar y calcular pago en pesos")
-        print("19. Consultar clima del proyecto")
-        print("0. Salir")
+        print("\nECOTECH - MENÚ DEL GERENTE")
+        print("1. Consultar trabajadores")
+        print("2. Gestionar proyectos")
+        print("3. Gestionar departamentos")
+        print("4. Gestionar asignaciones y horas")
+        print("5. Consultar informe general")
+        print("6. Exportar informe a Excel")
+        print("7. Exportar informe a PDF")
+        print("8. Consultar dólar y calcular pago en pesos")
+        print("9. Consultar clima del proyecto")
+        print("0. Cerrar sesión")
+
         opcion = input("Seleccione una opción: ").strip()
+        if opcion != "0" and not sesion_vigente(conexion, sesion):
+            print("La cuenta o el rol cambió. Vuelve a iniciar sesión.")
+            return
+        
         if opcion == "0":
             return
-        ejecutar_opcion_menu(opcion, conexion, servicio, sesion)
+
+        ejecutar_opcion_menu(opcion, conexion, sesion)
 
 def mostrar_cotizacion_dolar(cotizacion):
     precio = f"{cotizacion.venta:.2f}".replace(".", ",")

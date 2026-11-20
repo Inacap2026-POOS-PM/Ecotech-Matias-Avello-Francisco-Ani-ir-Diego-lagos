@@ -18,6 +18,11 @@ from validaciones import (
     validar_correo,
     validar_id,
     validar_rol,
+    validar_nombre,
+    validar_rol_trabajador,
+    validar_direccion,
+    validar_fecha,
+    validar_salario,
     validar_rut,
     validar_telefono,
     validar_horas_adicionales,
@@ -153,6 +158,34 @@ def agregar_empleado(conexion, empleado):
         agregar_cuenta(conexion, id_empleado, cuenta)
         return id_empleado
 
+def crear_ficha_con_invitacion(conexion, nombre, rut, fecha_contrato, salario):
+    datos = (
+        validar_nombre(nombre, revisar_formato=True),
+        validar_rut(rut),
+        validar_fecha(fecha_contrato),
+        validar_salario(salario),
+    )
+    codigo = secrets.token_urlsafe(18)
+
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        cursor.execute("""
+            INSERT INTO empleado (
+                nombre, rut, fecha_inicio, salario,
+                invitacion_hash, invitacion_vence
+            )
+            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP + INTERVAL '24 hours')
+            RETURNING id_empleado
+        """, (*datos, huella_invitacion(codigo)))
+
+        id_empleado = cursor.fetchone()["id_empleado"]
+
+        registrar_historial(
+            cursor, "AGREGAR", "EMPLEADO", id_empleado,
+            "Ficha creada con invitación.",
+            nuevos=leer_empleado(cursor, id_empleado),
+        )
+
+    return id_empleado, codigo
 
 def registrar_empleado_invitado(conexion, empleado):
     if empleado.get_rol() != "Empleado":
@@ -215,124 +248,123 @@ def buscar_empleado(conexion, id_empleado):
 
 
 def actualizar_empleado(conexion, empleado):
-    cursor = conexion.cursor(row_factory=dict_row)
+    id_empleado = empleado.get_id()
 
-    try:
-        cursor.execute("BEGIN")
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        antes = leer_empleado(cursor, id_empleado)
+        if antes is None:
+            return False
 
-        anteriores = leer_empleado(
-            cursor,
-            empleado.get_id()
-        )
+        direccion = antes["direccion"]
+        telefono = antes["telefono"]
+        correo = antes["correo"]
 
-        if anteriores is None:
-            raise RegistroNoEncontradoError(
-                REGISTRO_NO_ENCONTRADO
-            )
-
-        correo = validar_correo(empleado.get_correo(), revisar_formato=True)
-        
-        cuenta_anterior = leer_cuenta(
-            cursor,
-            empleado.get_id()
-        )
-
-        if empleado.get_rol() != "Gerente":
-            cursor.execute("""
-                SELECT id_departamento
-                FROM departamento
-                WHERE gerente_id = %s
-                LIMIT 1
-            """, (empleado.get_id(),))
-
-            if cursor.fetchone() is not None:
-                raise ValueError(
-                    "Ese empleado dirige un departamento. "
-                    "Cambie primero el gerente del departamento."
-                )
+        if empleado.get_correo() is not None:
+            direccion = validar_direccion(empleado.get_direccion(), revisar_formato=True)
+            telefono = validar_telefono(empleado.get_telefono(), revisar_formato=True)
+            correo = validar_correo(empleado.get_correo(), revisar_formato=True)
 
         cursor.execute("""
             UPDATE empleado
-            SET nombre = %s,
-                direccion = %s,
-                telefono = %s,
-                correo = %s,
-                fecha_inicio = %s,
-                salario = %s,
-                rol = %s,
-                rut = %s
+            SET nombre = %s, rut = %s, fecha_inicio = %s, salario = %s,
+                direccion = %s, telefono = %s, correo = %s
             WHERE id_empleado = %s
         """, (
             empleado.get_nombre(),
-            empleado.get_direccion(),
-            validar_telefono(empleado.get_telefono(), revisar_formato=True),
-            correo,
+            validar_rut(empleado.get_rut()),
             empleado.get_fecha_inicio(),
             empleado.get_salario(),
-            empleado.get_rol(),
-            validar_rut(empleado.get_rut()),
-            empleado.get_id()
-            
+            direccion, telefono, correo, id_empleado,
         ))
 
-        cursor.execute("""
-            UPDATE cuenta_usuario
-            SET correo = %s
-            WHERE id_empleado = %s
-        """, (
-            correo,
-            empleado.get_id()
-        ))
-
-        nuevos = leer_empleado(
-            cursor,
-            empleado.get_id()
-        )
-
-        cuenta_nueva = leer_cuenta(
-            cursor,
-            empleado.get_id()
-        )
-
-        if anteriores != nuevos:
+        despues = leer_empleado(cursor, id_empleado)
+        if antes != despues:
             registrar_historial(
-                cursor,
-                "ACTUALIZAR",
-                "EMPLEADO",
-                empleado.get_id(),
-                "Datos del empleado actualizados.",
-                anteriores,
-                nuevos
+                cursor, "ACTUALIZAR", "EMPLEADO", id_empleado,
+                "Ficha actualizada.", anteriores=antes, nuevos=despues,
             )
 
-        if cuenta_anterior != cuenta_nueva:
+        cuenta = leer_cuenta(cursor, id_empleado)
+        if cuenta and cuenta["correo"] != correo:
+            cursor.execute("""
+                UPDATE cuenta_usuario
+                SET correo = %s
+                WHERE id_empleado = %s
+            """, (correo, id_empleado))
+
             registrar_historial(
-                cursor,
-                "ACTUALIZAR",
-                "CUENTA_USUARIO",
-                empleado.get_id(),
-                "Correo sincronizado con el empleado.",
-                cuenta_anterior,
-                cuenta_nueva
+                cursor, "ACTUALIZAR", "CUENTA_USUARIO", id_empleado,
+                "Correo de cuenta actualizado.",
+                anteriores=cuenta,
+                nuevos=leer_cuenta(cursor, id_empleado),
             )
 
-        conexion.commit()
         return True
 
-    except RegistroNoEncontradoError:
-        if not conexion.closed:
-            conexion.rollback()
 
-        return False
+def cambiar_rol_trabajador(conexion, id_empleado, nuevo_rol):
+    id_empleado = validar_id(id_empleado)
+    nuevo_rol = validar_rol_trabajador(nuevo_rol)
 
-    except (Error, ValueError, TypeError, KeyError):
-        if not conexion.closed:
-            conexion.rollback()
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        ficha = leer_empleado(cursor, id_empleado)
 
-        raise
+        if ficha is None:
+            raise ValueError("No existe ese trabajador.")
+        if ficha["rol"] == "Administrador":
+            raise ValueError("Esta opción solo cambia roles de empleados y gerentes.")
+        if ficha["rol"] == nuevo_rol:
+            return False
 
-    finally:
-        cursor.close()
+        if nuevo_rol == "Gerente" and leer_cuenta(cursor, id_empleado) is None:
+            raise ValueError("El trabajador debe activar su cuenta primero.")
+
+        if nuevo_rol == "Empleado" and empleado_dirige_departamento(conexion, id_empleado):
+            raise ValueError("Asigna otro gerente al departamento antes de cambiar el rol.")
+
+        cursor.execute("""
+            UPDATE empleado SET rol = %s WHERE id_empleado = %s
+        """, (nuevo_rol, id_empleado))
+
+        registrar_historial(
+            cursor, "ACTUALIZAR", "EMPLEADO", id_empleado,
+            "Cambio de rol.",
+            anteriores={"rol": ficha["rol"]},
+            nuevos={"rol": nuevo_rol},
+        )
+        return True
+
+
+def proteger_ultimo_administrador(cursor, *, id_empleado=None, id_cuenta=None):
+    cursor.execute("LOCK TABLE empleado, cuenta_usuario IN SHARE ROW EXCLUSIVE MODE")
+
+    cursor.execute("""
+        SELECT e.id_empleado, c.id_cuenta
+        FROM empleado AS e
+        JOIN cuenta_usuario AS c ON c.id_empleado = e.id_empleado
+        WHERE e.rol = 'Administrador'
+    """)
+    administradores = cursor.fetchall()
+
+    if len(administradores) == 1:
+        ultimo = administradores[0]
+        if ultimo["id_empleado"] == id_empleado or ultimo["id_cuenta"] == id_cuenta:
+            raise ValueError("Debe quedar al menos una cuenta de administrador.")
+
+
+def sesion_vigente(conexion, sesion):
+    with conexion.cursor() as cursor:
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM cuenta_usuario AS c
+                JOIN empleado AS e ON e.id_empleado = c.id_empleado
+                WHERE e.id_empleado = %s
+                  AND c.nombre_usuario = %s
+                  AND e.rol = %s
+            )
+        """, (sesion["id_empleado"], sesion["nombre_usuario"], sesion["rol"]))
+        return cursor.fetchone()[0]
 
 
 def eliminar_empleado(conexion, id_empleado):
@@ -340,6 +372,7 @@ def eliminar_empleado(conexion, id_empleado):
 
     try:
         cursor.execute("BEGIN")
+        proteger_ultimo_administrador(cursor, id_empleado=validar_id(id_empleado))
 
         anteriores = leer_empleado(cursor, id_empleado)
 
@@ -549,6 +582,7 @@ def eliminar_cuenta(conexion, id_cuenta):
 
     try:
         cursor.execute("BEGIN")
+        proteger_ultimo_administrador(cursor, id_cuenta=validar_id(id_cuenta))
 
         cursor.execute("""
             SELECT id_cuenta,
@@ -1340,35 +1374,86 @@ def generar_invitacion(conexion, id_empleado):
         if leer_cuenta(cursor, id_empleado) is not None:
             raise ValueError("Este empleado ya tiene una cuenta.")
 
-        return emitir_invitacion(cursor, id_empleado)
+        codigo = emitir_invitacion(cursor, id_empleado)
+        registrar_historial(
+            cursor, "ACTUALIZAR", "EMPLEADO", id_empleado,
+            "Invitación renovada.",
+        )
+        return codigo
 
-def activar_cuenta_empleado(conexion, codigo, nombre, contrasena, servicio):
-    nombre = validar_nombre_usuario(nombre, revisar_formato=True)
-
-    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+def contacto_pendiente_invitacion(conexion, codigo):
+    with conexion.cursor() as cursor:
         cursor.execute("""
-            UPDATE empleado AS e
-            SET invitacion_hash = NULL,
-                invitacion_vence = NULL
+            SELECT e.correo IS NULL
+            FROM empleado AS e
             WHERE e.invitacion_hash = %s
               AND e.invitacion_vence > CURRENT_TIMESTAMP
               AND e.rol = 'Empleado'
               AND NOT EXISTS (
-                  SELECT 1
-                  FROM cuenta_usuario AS c
+                  SELECT 1 FROM cuenta_usuario AS c
+                  WHERE c.id_empleado = e.id_empleado
+              )
+        """, (huella_invitacion(codigo),))
+
+        fila = cursor.fetchone()
+
+    return None if fila is None else fila[0]
+
+
+def nombre_usuario_ocupado(conexion, nombre):
+    with conexion.cursor() as cursor:
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM cuenta_usuario WHERE nombre_usuario = %s
+            )
+        """, (nombre,))
+        return cursor.fetchone()[0]
+
+def activar_cuenta_empleado(
+    conexion, codigo, nombre, contrasena, servicio, *, contacto=None
+):
+    nombre = validar_nombre_usuario(nombre, revisar_formato=True)
+    direccion = telefono = correo = None
+
+    if contacto is not None:
+        direccion, telefono, correo = contacto
+        direccion = validar_direccion(direccion, revisar_formato=True)
+        telefono = validar_telefono(telefono, revisar_formato=True)
+        correo = validar_correo(correo, revisar_formato=True)
+
+    with conexion.transaction(), conexion.cursor(row_factory=dict_row) as cursor:
+        cursor.execute("""
+            UPDATE empleado AS e
+            SET direccion = COALESCE(e.direccion, %s),
+                telefono = COALESCE(e.telefono, %s),
+                correo = COALESCE(e.correo, %s),
+                invitacion_hash = NULL,
+                invitacion_vence = NULL
+            WHERE e.invitacion_hash = %s
+              AND e.invitacion_vence > CURRENT_TIMESTAMP
+              AND e.rol = 'Empleado'
+              AND (e.correo IS NOT NULL OR %s)
+              AND NOT EXISTS (
+                  SELECT 1 FROM cuenta_usuario AS c
                   WHERE c.id_empleado = e.id_empleado
               )
             RETURNING e.id_empleado, e.correo
-        """, (huella_invitacion(codigo),))
+        """, (
+            direccion, telefono, correo,
+            huella_invitacion(codigo), contacto is not None,
+        ))
 
         empleado = cursor.fetchone()
         if empleado is None:
-            raise ValueError("La invitación es incorrecta, venció o ya se utilizó.")
+            raise ValueError(
+                "No se pudo activar la cuenta. "
+                "Revisa la invitación y los datos de contacto."
+            )
 
         cuenta = CuentaUsuario(nombre, empleado["correo"], servicio, contrasena)
         return agregar_cuenta(conexion, empleado["id_empleado"], cuenta)
 
-def primer_gerente_pendiente(conexion):
+def primer_administrador_pendiente(conexion):
     with conexion.cursor() as cursor:
         cursor.execute("""
             SELECT NOT EXISTS (
@@ -1382,16 +1467,16 @@ def primer_gerente_pendiente(conexion):
         return cursor.fetchone()[0]
 
 
-def crear_primer_gerente(conexion, empleado):
-    if empleado.get_rol() != "Gerente":
-        raise ValueError("La primera cuenta debe tener el rol Gerente.")
+def crear_primer_administrador(conexion, empleado):
+    if empleado.get_rol() != "Administrador":
+        raise ValueError("La primera cuenta debe tener el rol Administrador.")
 
     with conexion.transaction(), conexion.cursor() as cursor:
         cursor.execute("""
             LOCK TABLE empleado, cuenta_usuario IN SHARE ROW EXCLUSIVE MODE
         """)
 
-        if not primer_gerente_pendiente(conexion):
+        if not primer_administrador_pendiente(conexion):
             return False
 
         agregar_empleado(conexion, empleado)

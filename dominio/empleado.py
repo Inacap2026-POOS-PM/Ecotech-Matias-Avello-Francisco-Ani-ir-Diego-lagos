@@ -12,7 +12,11 @@ from validaciones import (
 class Empleado(Persona):
     def __init__(self, id_empleado, nombre, direccion, telefono,
                  correo, fecha_inicio, salario, rol="Empleado", rut=None):
-        super().__init__(nombre, direccion, telefono, correo)
+        
+        super().__init__(
+            nombre, direccion, telefono, correo,
+            admite_pendiente=id_empleado is not None and rol == "Empleado",
+        )
         self._id_empleado = validar_id_opcional(id_empleado)
         self._rut = validar_rut(rut) if rut is not None else None
         self._fecha_inicio = validar_fecha(fecha_inicio)

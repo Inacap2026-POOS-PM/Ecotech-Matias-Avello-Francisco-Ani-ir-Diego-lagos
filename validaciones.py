@@ -58,26 +58,8 @@ def validar_rut(rut):
 
     if not re.fullmatch(r"[1-9][0-9]{0,7}-[0-9K]", rut):
         raise ValueError(
-            "Ingresa el RUT sin puntos y con guion. Ejemplo: 12345678-5."
+            "Escribe el RUT sin puntos y con guion. Ejemplo: 12345678-3."
         )
-
-    numero, verificador = rut.split("-")
-    suma = 0
-
-    for posicion, digito in enumerate(reversed(numero)):
-        factor = 2 + posicion % 6
-        suma += int(digito) * factor
-
-    resultado = 11 - (suma % 11)
-    if resultado == 11:
-        esperado = "0"
-    elif resultado == 10:
-        esperado = "K"
-    else:
-        esperado = str(resultado)
-
-    if verificador != esperado:
-        raise ValueError("El dígito verificador no coincide. Revisa el RUT.")
 
     return rut
 
@@ -134,10 +116,20 @@ def validar_presupuesto(presupuesto):
 
 
 def validar_rol(rol):
-    rol = validar_cadena(rol, 'El rol')
-    rol = rol.strip().capitalize()
+    rol = validar_cadena(rol, "El rol").strip().capitalize()
+
+    if rol not in ("Empleado", "Gerente", "Administrador"):
+        raise ValueError("El rol ingresado no existe.")
+
+    return rol
+
+
+def validar_rol_trabajador(rol):
+    rol = validar_rol(rol)
+
     if rol not in ("Empleado", "Gerente"):
-        raise ValueError("El rol debe ser Empleado o Gerente.")
+        raise ValueError("Elige Empleado o Gerente.")
+
     return rol
 
 
