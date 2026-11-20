@@ -6,7 +6,7 @@ from pathlib import Path
 
 CARPETA_PROYECTO = Path(__file__).resolve().parent.parent
 RUTA_BASE_PREDETERMINADA = Path("datos") / "ecotech.sqlite3"
-TIEMPO_ESPERA_BASE = 5
+TIEMPO_ESPERA_BASE = 10
 
 
 class ErrorBaseLocal(RuntimeError):

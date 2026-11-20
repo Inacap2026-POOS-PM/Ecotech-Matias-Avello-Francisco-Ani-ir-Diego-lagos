@@ -37,7 +37,7 @@ def consultar_api(base, destino):
         try:
             with requests.get(
                 "https://open.er-api.com/v6/latest/" + base,
-                timeout=(3, 10), allow_redirects=False
+                timeout=10, allow_redirects=False
             ) as respuesta:
                 estado = respuesta.status_code
                 if estado == 200:

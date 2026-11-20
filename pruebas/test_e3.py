@@ -40,7 +40,7 @@ class PruebasE3(unittest.TestCase):
         with patch.object(api.requests, "get", side_effect=[respuesta(429, "3"), respuesta(503), respuesta(200)]) as get:
             self.assertEqual(api.consultar_api("USD", "CLP").tasa, Decimal("950.25"))
             self.assertEqual([x.args[0] for x in dormir.call_args_list], [3, 2])
-            self.assertEqual(get.call_args.kwargs["timeout"], (3, 10))
+            self.assertEqual(get.call_args.kwargs["timeout"], 10)
         with patch.object(api.requests, "get", return_value=respuesta(429, "120")) as get:
             with self.assertRaises(api.ServicioNoDisponible):
                 api.consultar_api("USD", "CLP")
