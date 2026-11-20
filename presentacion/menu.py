@@ -1,4 +1,5 @@
 import json
+from presentacion.menu_api import opcion_clima
 from psycopg import (
     IntegrityError, DataError, OperationalError, InterfaceError, ProgrammingError
 )
@@ -360,9 +361,10 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         "15": (mostrar_informes_desde_supabase, (conexion,)),
         "16": (exportar_informe_desde_supabase, (conexion, "excel")),
         "17": (exportar_informe_desde_supabase, (conexion, "pdf")),
+        "18": (opcion_clima, ()),
     }
     try:
-        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 17.")
+        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 18.")
     except ValueError as error:
         print("Dato inválido:", error)
     except ConnectionError:
@@ -495,6 +497,7 @@ def menu_gerente(conexion, servicio, sesion):
         print("15. Generar informes de Supabase")
         print("16. Guardar informe en Excel (.xlsx)")
         print("17. Guardar informe en PDF (.pdf)")
+        print("18. Consultar clima de un proyecto")
         print("0. Salir")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
