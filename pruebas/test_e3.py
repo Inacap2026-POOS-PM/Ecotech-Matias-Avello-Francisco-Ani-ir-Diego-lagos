@@ -26,25 +26,39 @@ class PruebasE3(unittest.TestCase):
                 self.assertEqual(get.call_count, 1)
 
     @patch.object(api.time, "sleep")
-    def test_reintentos(self, dormir):
+    @patch.object(api.azar, "uniform", return_value=0.25)
+    def test_reintentos(self, _azar, dormir):
         for falla in (api.requests.Timeout(), api.requests.ConnectionError()):
             dormir.reset_mock()
             with patch.object(api.requests, "get", side_effect=falla) as get:
                 with self.assertRaises(api.ServicioNoDisponible):
                     api.consultar_api("USD", "CLP")
                 self.assertEqual(get.call_count, 4)
-                self.assertEqual([x.args[0] for x in dormir.call_args_list], [1, 2, 4])
+                self.assertEqual([x.args[0] for x in dormir.call_args_list], [1.25, 2.25, 4.25])
 
     @patch.object(api.time, "sleep")
-    def test_cuota_y_servidor(self, dormir):
+    @patch.object(api.azar, "uniform", return_value=0.25)
+    def test_cuota_y_servidor(self, _azar, dormir):
         with patch.object(api.requests, "get", side_effect=[respuesta(429, "3"), respuesta(503), respuesta(200)]) as get:
             self.assertEqual(api.consultar_api("USD", "CLP").tasa, Decimal("950.25"))
-            self.assertEqual([x.args[0] for x in dormir.call_args_list], [3, 2])
+            self.assertEqual([x.args[0] for x in dormir.call_args_list], [3.25, 2.25])
             self.assertEqual(get.call_args.kwargs["timeout"], 10)
         with patch.object(api.requests, "get", return_value=respuesta(429, "120")) as get:
             with self.assertRaises(api.ServicioNoDisponible):
                 api.consultar_api("USD", "CLP")
             self.assertEqual(get.call_count, 1)
+
+    def test_url_rota_desde_el_menu(self):
+        with tempfile.TemporaryDirectory() as directorio, patch.dict(
+            os.environ, {"ECOTECH_SQLITE_PATH": str(Path(directorio) / "prueba.db")}
+        ), patch.object(api, "URL_BASE", "sin-esquema/"), patch.object(
+            api.time, "sleep"
+        ) as dormir, patch("builtins.input", side_effect=["USD", "CLP", "2"]), patch("builtins.print") as salida:
+            consultar_pago({"rol": "Empleado"})
+            mensajes = " ".join(str(llamada.args[0]) for llamada in salida.call_args_list)
+            self.assertIn("dirección de la API no es válida", mensajes)
+            self.assertIn("No hay cotizacion guardada", mensajes)
+            dormir.assert_not_called()
 
     def test_pago_y_respaldo(self):
         with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {"ECOTECH_SQLITE_PATH": str(Path(d)/"e3.db")}):

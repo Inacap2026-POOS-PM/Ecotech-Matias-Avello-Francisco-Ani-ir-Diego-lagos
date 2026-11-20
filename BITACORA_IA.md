@@ -28,3 +28,17 @@ incluido en pip porque el entorno no tenía instalada la dependencia independien
 Pendientes: conexión en vivo desde main.py con requirements instalado, migración
 PostgreSQL y demostración individual con ambos roles. No se atribuyen a Diego
 pruebas, decisiones personales ni resultados que aún no haya realizado.
+
+## Revisión de la Clase 13 · 20 de noviembre de 2026
+
+Petición de Diego: «vuelves a analizarlas y realiza cambios que diga». Se revisaron los 17 HTML de *Cuando la red falla*. Estas son las decisiones de la revisión técnica.
+
+| Señal o sugerencia | Decisión y fundamento |
+|---|---|
+| SQL con valores interpolados | Acepto mantener parámetros para los valores y la lista permitida de identificadores en el repositorio. |
+| Desactivar la comprobación de certificados | Descarto esa opción. El cliente conserva la verificación TLS y comunica el fallo de certificado. |
+| Silenciar excepciones | Modifico los mensajes para distinguir URL inválida, falta de permiso, recurso inexistente, cuota agotada, timeout y fallo de conexión. La consola informa el motivo antes de consultar SQLite. |
+| Peticiones sin timeout y reintentos simultáneos | Acepto mantener el timeout de 10 segundos y cuatro intentos como máximo. A la espera de 1, 2 y 4 segundos se añaden hasta 0,5 segundos aleatorios. El cliente respeta Retry-After y registra la demora. |
+| Dependencias inventadas | Conservo Requests, verificado en PyPI durante la integración. La variación de espera usa la biblioteca estándar de Python. |
+
+Verificación local: pasaron cinco pruebas. La nueva usa una URL sin esquema desde la consulta de un empleado con SQLite temporal. Requests rechaza la dirección, la aplicación lo explica e indica que no hay cotización guardada. La prueba comprueba que no hubo espera de reintento. Las pruebas de red caída, 429 y 503 simulan los fallos.
