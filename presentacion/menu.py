@@ -56,6 +56,8 @@ from presentacion.entradas import (
 from presentacion.errores import (
     mostrar_error_supabase
 )
+from presentacion.cotizaciones import consultar_pago
+from presentacion.sesion import iniciar_sesion
 
 
 REGISTRO_NO_EXISTE = "No existe ese registro."
@@ -342,6 +344,7 @@ def eliminar_cuenta_desde_menu(conexion):
 
 
 def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
+    exigir_gerente(sesion)
     acciones = {
         "1": (agregar_empleado_desde_menu, (conexion, servicio)),
         "2": (listar_empleados_desde_menu, (conexion,)),
@@ -360,9 +363,10 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         "15": (mostrar_informes_desde_supabase, (conexion,)),
         "16": (exportar_informe_desde_supabase, (conexion, "excel")),
         "17": (exportar_informe_desde_supabase, (conexion, "pdf")),
+        "18": (consultar_pago, (sesion,)),
     }
     try:
-        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 17.")
+        ejecutar_accion(acciones, opcion, "Opción inválida. Elige una opción del 0 al 18.")
     except ValueError as error:
         print("Dato inválido:", error)
     except ConnectionError:
@@ -379,6 +383,8 @@ def ejecutar_opcion_menu(opcion, conexion, servicio, sesion):
         mostrar_error_supabase(error, conexion)
 
 def menu_empleado(conexion, sesion):
+    if not sesion or sesion.get("rol") != "Empleado":
+        raise PermissionError("Se requiere una sesión de empleado.")
     id_empleado = sesion["id_empleado"]
 
     while True:
@@ -386,6 +392,7 @@ def menu_empleado(conexion, sesion):
         print("Usuario:", sesion["nombre_usuario"])
         print("1. Consultar mis datos")
         print("2. Consultar mis horas de trabajo")
+        print("3. Consultar tipo de cambio y convertir pago")
         print("0. Cerrar sesión")
 
         opcion = input("Seleccione una opción: ").strip()
@@ -409,6 +416,7 @@ def menu_empleado(conexion, sesion):
                 print("Fecha de inicio:", empleado["fecha_inicio"])
                 print("Salario:", empleado["salario"])
                 print("Rol:", empleado["rol"])
+                print("RUT:", empleado["rut"] or "Pendiente de registrar")
 
             elif opcion == "2":
                 registros = consultar_horas_empleado(
@@ -428,6 +436,9 @@ def menu_empleado(conexion, sesion):
                     print("Horas:", registro["horas_trabajadas"])
                     print("Tareas:", registro["tareas_realizadas"])
 
+            elif opcion == "3":
+                consultar_pago(sesion)
+
             elif opcion == "0":
                 print("Sesión finalizada.")
                 return
@@ -438,40 +449,7 @@ def menu_empleado(conexion, sesion):
         except ValueError as error:
             print("Dato inválido:", error)
 def menu(conexion, servicio):
-    print("\nECOTECH - INICIO DE SESIÓN")
-
-    nombre = pedir_dato(
-        "Nombre de usuario: ",
-        validar_nombre_usuario,
-        revisar_formato=True
-    )
-
-    contrasena = pedir_dato(
-        "Contraseña: ",
-        validar_contrasena,
-        ocultar=True
-    )
-
-    sesion = comprobar_acceso(
-        conexion, nombre, contrasena, servicio
-    )
-
-    if sesion is None:
-        print("Usuario o contraseña incorrectos.")
-        return
-
-    print("\nBienvenido a EcoTech.")
-
-    if sesion["rol"] == "Gerente":
-        print("Acceso autorizado como Gerente.")
-        menu_gerente(conexion, servicio, sesion)
-
-    elif sesion["rol"] == "Empleado":
-        print("Acceso autorizado como Empleado.")
-        menu_empleado(conexion, sesion)
-
-    else:
-        print("El rol de esta cuenta no está autorizado.")
+    iniciar_sesion(conexion, servicio, menu_gerente, menu_empleado)
 
 def menu_gerente(conexion, servicio, sesion):
     exigir_gerente(sesion)
@@ -495,6 +473,7 @@ def menu_gerente(conexion, servicio, sesion):
         print("15. Generar informes de Supabase")
         print("16. Guardar informe en Excel (.xlsx)")
         print("17. Guardar informe en PDF (.pdf)")
+        print("18. Consultar tipo de cambio y convertir pago")
         print("0. Salir")
         opcion = input("Seleccione una opción: ").strip()
         if opcion == "0":
