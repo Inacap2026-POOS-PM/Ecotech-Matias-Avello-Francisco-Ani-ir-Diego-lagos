@@ -2,9 +2,8 @@ import os
 from hmac import compare_digest
 from pathlib import Path
 
-from cryptography.exceptions import InvalidKey
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+from dominio.hash_cuenta import crear_hash, verificar_hash
 
 
 class ServicioCifrado:
@@ -32,15 +31,7 @@ class ServicioCifrado:
     def cifrar_contrasena(self, contrasena):
         if not isinstance(contrasena, str):
             raise TypeError("La contrasena debe ser una cadena.")
-        derivador = Argon2id(
-            salt=os.urandom(16),
-            length=32,
-            iterations=3,
-            lanes=4,
-            memory_cost=64 * 1024
-        )
-        resumen = derivador.derive_phc_encoded(contrasena.encode("utf-8"))
-        return self.cifrar(self.MARCADOR_HASH + resumen)
+        return crear_hash(contrasena)
 
     def descifrar(self, token):
         if not isinstance(token, (bytes, bytearray, memoryview)):
@@ -56,14 +47,13 @@ class ServicioCifrado:
     def validacion_cifrado(self, ingresada, token):
         if not isinstance(ingresada, str):
             raise TypeError("La contrasena debe ser una cadena.")
+        token = bytes(token)
+        if token.startswith(b"$argon2id$"):
+            return verificar_hash(ingresada, token)
         contenido = self.descifrar(token)
         if contenido.startswith(self.MARCADOR_HASH):
             resumen = contenido[len(self.MARCADOR_HASH):]
-            try:
-                Argon2id.verify_phc_encoded(ingresada.encode("utf-8"), resumen)
-            except InvalidKey:
-                return False
-            return True
+            return verificar_hash(ingresada, resumen.encode("ascii"))
         return compare_digest(ingresada.encode("utf-8"), contenido.encode("utf-8"))
 
     def __str__(self):
