@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS ecotech.empleado (
     fecha_inicio DATE NOT NULL,
     salario NUMERIC(12, 2) NOT NULL,
     rol VARCHAR(50) NOT NULL DEFAULT 'Empleado',
+    rut VARCHAR(10),
     CONSTRAINT ck_empleado_salario CHECK (salario >= 0),
     CONSTRAINT ck_empleado_nombre CHECK (CHAR_LENGTH(TRIM(nombre)) > 0),
     CONSTRAINT ck_empleado_rol CHECK (rol IN ('Empleado', 'Gerente'))

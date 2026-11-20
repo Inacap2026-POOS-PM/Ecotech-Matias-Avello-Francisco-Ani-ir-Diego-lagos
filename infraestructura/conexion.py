@@ -67,7 +67,7 @@ def conectar_supabase(usuario, contrasena, host, puerto=SUPABASE_PUERTO, base=SU
 def verificar_tablas(conexion):
     cursor = conexion.cursor()
     try:
-        cursor.execute("SELECT id_empleado, nombre, direccion, telefono, correo, fecha_inicio, salario, rol FROM empleado LIMIT 0")
+        cursor.execute("SELECT id_empleado, nombre, direccion, telefono, correo, fecha_inicio, salario, rol, rut FROM empleado LIMIT 0")
         cursor.fetchall()
         cursor.execute("SELECT id_cuenta, id_empleado, nombre_usuario, correo, contrasena_cifrada FROM cuenta_usuario LIMIT 0")
         cursor.fetchall()

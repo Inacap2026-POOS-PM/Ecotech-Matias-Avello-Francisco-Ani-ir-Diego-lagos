@@ -31,7 +31,7 @@ class RegistroNoEncontradoError(LookupError):
 def leer_empleado(cursor, id_empleado):
     cursor.execute("""
         SELECT id_empleado, nombre, direccion, telefono,
-               correo, fecha_inicio, salario, rol
+               correo, fecha_inicio, salario, rol, rut
         FROM empleado
         WHERE id_empleado = %s
         FOR UPDATE
@@ -133,9 +133,10 @@ def agregar_empleado(conexion, empleado):
                     correo,
                     fecha_inicio,
                     salario,
-                    rol
+                    rol,
+                    rut
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id_empleado
             """, (
                 empleado.get_nombre(),
@@ -144,7 +145,8 @@ def agregar_empleado(conexion, empleado):
                 empleado.get_correo(),
                 empleado.get_fecha_inicio(),
                 empleado.get_salario(),
-                empleado.get_rol()
+                empleado.get_rol(),
+                empleado.get_rut()
             ))
 
             id_nuevo = cursor.fetchone()["id_empleado"]
@@ -198,7 +200,7 @@ def consultar_empleados(conexion):
     try:
         cursor.execute("""
             SELECT id_empleado, nombre, direccion, telefono,
-                   correo, fecha_inicio, salario, rol
+                   correo, fecha_inicio, salario, rol, rut
             FROM empleado
             ORDER BY id_empleado
         """)
@@ -215,7 +217,8 @@ def consultar_empleados(conexion):
                     fila["correo"],
                     fila["fecha_inicio"],
                     fila["salario"],
-                    fila["rol"]
+                    fila["rol"],
+                    fila["rut"]
                 )
             )
 
@@ -284,7 +287,8 @@ def actualizar_empleado(conexion, empleado):
                 correo = %s,
                 fecha_inicio = %s,
                 salario = %s,
-                rol = %s
+                rol = %s,
+                rut = %s
             WHERE id_empleado = %s
         """, (
             empleado.get_nombre(),
@@ -294,6 +298,7 @@ def actualizar_empleado(conexion, empleado):
             empleado.get_fecha_inicio(),
             empleado.get_salario(),
             empleado.get_rol(),
+            empleado.get_rut(),
             empleado.get_id()
         ))
 
@@ -670,7 +675,7 @@ def consultar_datos_empleado(conexion, id_empleado):
     try:
         cursor.execute("""
             SELECT id_empleado, nombre, direccion, telefono,
-                   correo, fecha_inicio, salario, rol
+                   correo, fecha_inicio, salario, rol, rut
             FROM empleado
             WHERE id_empleado = %s
         """, (validar_id(id_empleado),))
@@ -721,7 +726,7 @@ def leer_registro(cursor, entidad, id_registro, bloquear=False):
     )
 
     if bloquear:
-        consulta += SQL(" FOR UPDATE")
+        consulta = SQL("{} FOR UPDATE").format(consulta)
 
     cursor.execute(
         consulta,
@@ -1271,48 +1276,25 @@ def consultar_historial(
         SELECT id_historial, fecha, operacion, entidad,
                id_registro, id_empleado, usuario_mysql, detalle
         FROM historial_cambios
-        WHERE 1 = 1
+        WHERE (%s::text IS NULL OR entidad = %s)
+          AND (%s::integer IS NULL OR id_registro = %s)
+          AND (%s::integer IS NULL OR id_empleado = %s)
+          AND (%s::text IS NULL OR operacion = %s)
+          AND (%s = '' OR strpos(detalle, %s) > 0
+               OR strpos(COALESCE(datos_anteriores, ''), %s) > 0
+               OR strpos(COALESCE(datos_nuevos, ''), %s) > 0)
+        ORDER BY fecha DESC, id_historial DESC LIMIT %s
     """
-
-    datos = []
-
-    if entidad is not None:
-        consulta += " AND entidad = %s"
-        datos.append(entidad)
-
-    if id_registro is not None:
-        consulta += " AND id_registro = %s"
-        datos.append(id_registro)
-
-    if id_empleado is not None:
-        consulta += " AND id_empleado = %s"
-        datos.append(id_empleado)
-
-    if operacion is not None:
-        consulta += " AND operacion = %s"
-        datos.append(operacion)
-
-    if texto:
-        consulta += """
-            AND (
-                strpos(detalle, %s) > 0
-                OR strpos(COALESCE(datos_anteriores, ''), %s) > 0
-                OR strpos(COALESCE(datos_nuevos, ''), %s) > 0
-            )
-        """
-
-        datos.extend([texto, texto, texto])
-
-    consulta += " ORDER BY fecha DESC, id_historial DESC LIMIT %s"
-    datos.append(limite)
+    datos = (
+        entidad, entidad, id_registro, id_registro,
+        id_empleado, id_empleado, operacion, operacion,
+        texto, texto, texto, texto, limite
+    )
 
     cursor = conexion.cursor(row_factory=dict_row)
 
     try:
-        cursor.execute(
-            consulta,
-            tuple(datos)
-        )
+        cursor.execute(consulta, datos)
 
         return cursor.fetchall()
 
