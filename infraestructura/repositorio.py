@@ -18,6 +18,7 @@ from validaciones import (
     validar_correo,
     validar_id,
     validar_rol,
+    validar_rut,
     validar_telefono,
     validar_horas_adicionales,
     validar_nombre_usuario
@@ -36,7 +37,7 @@ class RegistroNoEncontradoError(LookupError):
 def leer_empleado(cursor, id_empleado):
     cursor.execute("""
         SELECT id_empleado, nombre, direccion, telefono,
-               correo, fecha_inicio, salario, rol
+        correo, fecha_inicio, salario, rol, rut
         FROM empleado
         WHERE id_empleado = %s
         FOR UPDATE
@@ -119,9 +120,9 @@ def registrar_historial(
 def insertar_ficha_empleado(cursor, empleado):
     cursor.execute("""
         INSERT INTO empleado (
-            nombre, direccion, telefono, correo, fecha_inicio, salario, rol
+            nombre, direccion, telefono, correo, fecha_inicio, salario, rol, rut
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id_empleado
     """, (
         empleado.get_nombre(),
@@ -130,7 +131,8 @@ def insertar_ficha_empleado(cursor, empleado):
         validar_correo(empleado.get_correo(), revisar_formato=True),
         empleado.get_fecha_inicio(),
         empleado.get_salario(),
-        empleado.get_rol()
+        empleado.get_rol(),
+        validar_rut(empleado.get_rut()),
     ))
 
     id_empleado = cursor.fetchone()["id_empleado"]
@@ -168,7 +170,7 @@ def consultar_empleados(conexion):
     try:
         cursor.execute("""
             SELECT id_empleado, nombre, direccion, telefono,
-                   correo, fecha_inicio, salario, rol
+                   correo, fecha_inicio, salario, rol, rut
             FROM empleado
             ORDER BY id_empleado
         """)
@@ -185,7 +187,8 @@ def consultar_empleados(conexion):
                     fila["correo"],
                     fila["fecha_inicio"],
                     fila["salario"],
-                    fila["rol"]
+                    fila["rol"],
+                    rut=fila["rut"]
                 )
             )
 
@@ -256,7 +259,8 @@ def actualizar_empleado(conexion, empleado):
                 correo = %s,
                 fecha_inicio = %s,
                 salario = %s,
-                rol = %s
+                rol = %s,
+                rut = %s
             WHERE id_empleado = %s
         """, (
             empleado.get_nombre(),
@@ -266,7 +270,9 @@ def actualizar_empleado(conexion, empleado):
             empleado.get_fecha_inicio(),
             empleado.get_salario(),
             empleado.get_rol(),
+            validar_rut(empleado.get_rut()),
             empleado.get_id()
+            
         ))
 
         cursor.execute("""
@@ -595,35 +601,21 @@ def eliminar_cuenta(conexion, id_cuenta):
 
 
 def comprobar_acceso(conexion, nombre, contrasena, servicio):
-    cursor = conexion.cursor(row_factory=dict_row)
-
-    try:
+    with conexion.cursor(row_factory=dict_row) as cursor:
         cursor.execute("""
-            SELECT c.nombre_usuario,
-                   c.correo,
-                   c.contrasena_cifrada,
-                   e.id_empleado,
-                   e.rol
+            SELECT c.nombre_usuario, c.correo, c.contrasena_cifrada,
+                   e.id_empleado, e.rol
             FROM cuenta_usuario c
-            INNER JOIN empleado e
-                ON e.id_empleado = c.id_empleado
+            JOIN empleado e ON e.id_empleado = c.id_empleado
             WHERE c.nombre_usuario = %s
         """, (nombre,))
 
         fila = cursor.fetchone()
-
         if fila is None:
             return None
 
-        cuenta = CuentaUsuario(
-            fila["nombre_usuario"],
-            fila["correo"],
-            servicio
-        )
-
-        cuenta.cargar_contrasena_cifrada(
-            fila["contrasena_cifrada"]
-        )
+        cuenta = CuentaUsuario(fila["nombre_usuario"], fila["correo"], servicio)
+        cuenta.cargar_contrasena_cifrada(fila["contrasena_cifrada"])
 
         if not cuenta.acceso_cuenta(nombre, contrasena):
             return None
@@ -631,11 +623,8 @@ def comprobar_acceso(conexion, nombre, contrasena, servicio):
         return {
             "id_empleado": fila["id_empleado"],
             "nombre_usuario": fila["nombre_usuario"],
-            "rol": fila["rol"]
+            "rol": fila["rol"],
         }
-
-    finally:
-        cursor.close()
 
 def consultar_datos_empleado(conexion, id_empleado):
     cursor = conexion.cursor(row_factory=dict_row)

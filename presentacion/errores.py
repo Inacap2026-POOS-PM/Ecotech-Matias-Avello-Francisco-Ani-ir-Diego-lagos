@@ -8,8 +8,14 @@ def mostrar_error_supabase(error, conexion=None):
             "Si fallo durante el guardado, consulte el registro antes de repetir la operacion."
         ) from error
     estado = error.sqlstate
+    
     if estado == "23505":
-        print("Ese usuario ya existe o el empleado ya tiene una cuenta.")
+        mensajes = {
+            "idx_empleado_rut": "Ese RUT ya está registrado.",
+            "cuenta_usuario_nombre_usuario_key": "Ese nombre de usuario ya está en uso.",
+            "cuenta_usuario_id_empleado_key": "Ese empleado ya tiene una cuenta.",
+        }
+        print(mensajes.get(error.diag.constraint_name, "Ya existe un registro con esos datos."))
     elif estado in ("23503", "23001"):
         print("Revise los registros relacionados: el ID no existe o el registro todavia esta en uso.")
     elif estado in ("23514", "23502", "22001", "22003", "22007"):
@@ -25,4 +31,5 @@ def mostrar_error_supabase(error, conexion=None):
     elif estado and estado.startswith("08"):
         print("No se pudo mantener la conexion. Revise el servidor y la red.")
     else:
-        raise error
+        print("No se pudo completar la operación en la base de datos.")
+        
