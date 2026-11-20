@@ -21,9 +21,19 @@ __pycache__/
 *.bak
 
 # Bases de datos y respaldos locales
+/datos/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 *.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 *.dump
 backup/
 backups/
