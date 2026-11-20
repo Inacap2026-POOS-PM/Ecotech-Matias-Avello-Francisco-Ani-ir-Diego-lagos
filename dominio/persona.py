@@ -3,8 +3,13 @@ from validaciones import validar_nombre, validar_direccion, validar_telefono, va
 
 
 class Persona(ABC):
-    def __init__(self, nombre, direccion, telefono, correo):
-        self.actualizar_datos(nombre, direccion, telefono, correo)
+    
+    def __init__(self, nombre, direccion, telefono, correo, *, admite_pendiente=False):
+        if admite_pendiente and (direccion, telefono, correo) == (None, None, None):
+            self._nombre = validar_nombre(nombre)
+            self._direccion = self._telefono = self._correo = None
+        else:
+            self.actualizar_datos(nombre, direccion, telefono, correo)
 
     def actualizar_datos(self, nombre, direccion, telefono, correo):
         nombre = validar_nombre(nombre)

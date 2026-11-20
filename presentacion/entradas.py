@@ -8,6 +8,7 @@ from dominio import (
 )
 from validaciones import (
     validar_nombre,
+    validar_rut,
     validar_direccion,
     validar_telefono,
     validar_correo,
@@ -15,6 +16,7 @@ from validaciones import (
     validar_salario,
     validar_presupuesto,
     validar_rol,
+    validar_rol_trabajador,
     validar_nombre_entidad,
     validar_descripcion,
     validar_miembro,
@@ -27,6 +29,7 @@ from validaciones import (
 from infraestructura.repositorio import (
     consultar_empleados,
     buscar_empleado,
+    nombre_usuario_ocupado,
     consultar_proyectos,
     buscar_proyecto,
     empleado_dirige_departamento
@@ -97,7 +100,7 @@ def pedir_dato(mensaje, validacion, ocultar=False, revisar_formato=False):
 
 def pedir_rol(conexion=None, id_empleado=None):
     while True:
-        rol = pedir_dato("Rol (Empleado/Gerente): ", validar_rol)
+        rol = pedir_dato("Rol (Empleado/Gerente): ", validar_rol_trabajador)
         if conexion is not None and id_empleado is not None and rol != "Gerente":
             if empleado_dirige_departamento(conexion, id_empleado):
                 print("Dato invalido: dirige un departamento. Mantenga el rol Gerente o cambie primero el responsable.")
@@ -105,24 +108,69 @@ def pedir_rol(conexion=None, id_empleado=None):
                 continue
         return rol
 
-def pedir_empleado(id_empleado, conexion=None):
+def pedir_datos_contrato():
+    nombre = pedir_dato("Nombre completo: ", validar_nombre, revisar_formato=True)
+    rut = pedir_dato("RUT sin puntos y con guion: ", validar_rut)
+    fecha = pedir_dato("Fecha de contrato (AAAA-MM-DD): ", validar_fecha)
+    salario = pedir_dato("Salario: ", validar_salario)
+    return nombre, rut, fecha, salario
+
+def pedir_empleado(id_empleado, conexion=None, rol_fijo=None):
     nombre = pedir_dato("Nombre: ", validar_nombre, revisar_formato=True)
-    direccion = pedir_dato("Dirección: ", validar_direccion, revisar_formato=True)
-    telefono = pedir_dato("Teléfono (12 en total: + y 11 números): ", validar_telefono, revisar_formato=True)
-    correo = pedir_dato("Correo (debe terminar en @gmail.com): ", validar_correo, revisar_formato=True)
+    
+    rut = pedir_dato(
+        "RUT sin puntos y con guion (ejemplo 12345678-5): ",
+        validar_rut,
+    )
+    
+    direccion, telefono, correo = pedir_datos_contacto()
     fecha = pedir_dato("Inicio del contrato (AAAA-MM-DD): ", validar_fecha)
     salario = pedir_dato("Salario, usando punto para los decimales: ", validar_salario)
-    rol = pedir_rol(conexion, id_empleado)
+    if rol_fijo is None:
+        rol = pedir_rol(conexion, id_empleado)
+    else:
+        rol = rol_fijo
+   
     return Empleado(
-        id_empleado, nombre, direccion, telefono, correo, fecha, salario, rol
+        id_empleado, nombre, direccion, telefono, correo,
+        fecha, salario, rol, rut=rut,
     )
 
+def pedir_nombre_nuevo(conexion=None):
+    while True:
+        nombre = pedir_dato(
+            "Elige tu nombre de usuario: ",
+            validar_nombre_usuario,
+            revisar_formato=True,
+        )
+        if conexion is None or not nombre_usuario_ocupado(conexion, nombre):
+            return nombre
+
+        print("Ese nombre de usuario ya está en uso. Elige otro.")
+
+
+def pedir_credenciales_nuevas(conexion=None):
+    nombre = pedir_nombre_nuevo(conexion)
+    contrasena = pedir_dato(
+        "Elige tu contraseña (8 a 128 caracteres): ",
+        validar_contrasena,
+        ocultar=True,
+    )
+    return nombre, contrasena
+
+
+def pedir_datos_contacto():
+    direccion = pedir_dato("Dirección: ", validar_direccion, revisar_formato=True)
+    telefono = pedir_dato(
+        "Celular (+569 y 8 dígitos): ", validar_telefono, revisar_formato=True
+    )
+    correo = pedir_dato("Correo @gmail.com: ", validar_correo, revisar_formato=True)
+    return direccion, telefono, correo
+
 def pedir_cuenta(correo, servicio):
-    nombre = pedir_dato("Nombre de usuario: ", validar_nombre_usuario, revisar_formato=True)
-    print("La contraseña admite mayúsculas, minúsculas, números y símbolos permitidos (8 a 128 caracteres).")
-    print("No se permiten comillas, paréntesis, barras (/ o \\), corchetes ni llaves.")
-    contrasena = pedir_dato("Contraseña de la cuenta: ", validar_contrasena, ocultar=True)
+    nombre, contrasena = pedir_credenciales_nuevas()
     return CuentaUsuario(nombre, correo, servicio, contrasena)
+
 
 def _registros_para_vincular(conexion, entidad, solo_gerentes):
     if entidad == "EMPLEADO":

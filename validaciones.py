@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-
+import re
 
 def validar_cadena(valor, nombre_campo):
     if not isinstance(valor, str):
@@ -33,18 +33,35 @@ def validar_direccion(direccion, revisar_formato=False):
 
 
 def validar_telefono(telefono, revisar_formato=False):
-    telefono = validar_cadena(telefono, 'El telefono')
-    telefono = telefono.strip()
+    telefono = validar_cadena(telefono, "El teléfono").strip()
+
+    if not telefono:
+        raise ValueError("Ingresa el celular. Ejemplo: +56912345678.")
+
     if revisar_formato:
-        if not telefono.startswith("+") or len(telefono) != 12:
-            raise ValueError("El telefono debe tener 12 caracteres en total: + al comienzo y 11 numeros despues.")
-        numeros = telefono[1:]
-        if not numeros.isascii() or not numeros.isdecimal():
-            raise ValueError("Despues del + solo se permiten numeros del 0 al 9, sin espacios ni otros simbolos.")
-    elif not telefono or len(telefono) > 20:
-        raise ValueError("El telefono debe tener entre 1 y 20 caracteres.")
+        numeros = telefono[4:]
+        if (
+            not telefono.startswith("+569")
+            or len(numeros) != 8
+            or not numeros.isascii()
+            or not numeros.isdecimal()
+        ):
+            raise ValueError(
+                "Ingresa +569 seguido de 8 dígitos, sin espacios ni guiones. "
+                "Ejemplo: +56912345678."
+            )
+
     return telefono
 
+def validar_rut(rut):
+    rut = validar_cadena(rut, "El RUT").strip().upper()
+
+    if not re.fullmatch(r"[1-9][0-9]{0,7}-[0-9K]", rut):
+        raise ValueError(
+            "Escribe el RUT sin puntos y con guion. Ejemplo: 12345678-3."
+        )
+
+    return rut
 
 def validar_correo(correo, revisar_formato=False):
     correo = validar_cadena(correo, 'El correo')
@@ -99,10 +116,20 @@ def validar_presupuesto(presupuesto):
 
 
 def validar_rol(rol):
-    rol = validar_cadena(rol, 'El rol')
-    rol = rol.strip().capitalize()
+    rol = validar_cadena(rol, "El rol").strip().capitalize()
+
+    if rol not in ("Empleado", "Gerente", "Administrador"):
+        raise ValueError("El rol ingresado no existe.")
+
+    return rol
+
+
+def validar_rol_trabajador(rol):
+    rol = validar_rol(rol)
+
     if rol not in ("Empleado", "Gerente"):
-        raise ValueError("El rol debe ser Empleado o Gerente.")
+        raise ValueError("Elige Empleado o Gerente.")
+
     return rol
 
 
@@ -180,6 +207,12 @@ def validar_nombre_usuario(nombre, revisar_formato=False):
 
 def validar_contrasena(contrasena):
     contrasena = validar_cadena(contrasena, 'La contrasena')
+    if not contrasena.strip():
+        raise ValueError("La contraseña no puede estar vacía.")
+    
+    if not contrasena.strip():
+        raise ValueError("La contraseña no puede estar vacía ni contener solo espacios.")
+    
     if len(contrasena) < 8 or len(contrasena) > 128:
         raise ValueError("La contrasena debe tener entre 8 y 128 caracteres.")
     prohibidos = "\"'()/\\[]{}“”‘’«»"
