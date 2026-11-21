@@ -1,4 +1,5 @@
 import os
+from dominio.rut import validar_rut
 from dominio import (
     Empleado,
     CuentaUsuario,
@@ -113,8 +114,9 @@ def pedir_empleado(id_empleado, conexion=None):
     fecha = pedir_dato("Inicio del contrato (AAAA-MM-DD): ", validar_fecha)
     salario = pedir_dato("Salario, usando punto para los decimales: ", validar_salario)
     rol = pedir_rol(conexion, id_empleado)
+    rut = pedir_dato("RUT del empleado: ", validar_rut)
     return Empleado(
-        id_empleado, nombre, direccion, telefono, correo, fecha, salario, rol
+        id_empleado, nombre, direccion, telefono, correo, fecha, salario, rol, rut
     )
 
 def pedir_cuenta(correo, servicio):

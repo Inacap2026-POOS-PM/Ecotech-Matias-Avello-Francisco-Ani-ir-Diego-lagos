@@ -22,8 +22,9 @@ Hay un único archivo de dependencias: `requirements.txt`.
 | `cryptography` | Cifrado Fernet y derivación de contraseñas con Argon2id. |
 | `openpyxl` | Exportación a Excel. |
 | `reportlab` | Exportación a PDF. |
+| `requests` | Consultas HTTP a ExchangeRate-API con timeout y manejo de errores. |
 
-Las dependencias indirectas se instalan automáticamente. No se incluyen archivos de pruebas, el ejemplo de informes ni un archivo adicional de requisitos de desarrollo.
+Las dependencias indirectas se instalan automáticamente. Se incluyen pruebas automatizadas de la integración E3; no se agrega un archivo adicional de requisitos de desarrollo.
 
 ## Configuración y ejecución
 
@@ -51,14 +52,19 @@ El certificado se descargó por HTTPS desde [el enlace de distribución de Supab
 | --- | --- |
 | `main.py` | Punto de entrada: llama a `iniciar_programa()`. |
 | `dominio/` | Las clases `Persona`, `Empleado`, `CuentaUsuario`, `Proyecto`, `Departamento`, `Asignacion`, `Tiempo`, `Informes` y `ServicioCifrado`. |
+| `dominio/rut.py`, `dominio/cotizacion.py`, `dominio/hash_cuenta.py` | Validación del RUT, modelo de cotización y hash Argon2id. |
 | `dominio/__init__.py` | Exporta las clases para facilitar sus importaciones. |
 | `validaciones.py` | Reglas compartidas por clases, formularios y repositorio. |
 | `infraestructura/conexion.py` | Configuración de entidades, carga del certificado, conexión y verificación de tablas. |
 | `supabase-ca.crt` | Certificado raíz público de Supabase utilizado para verificar el servidor. |
 | `infraestructura/repositorio.py` | CRUD, relaciones, historial y `RegistroNoEncontradoError`. |
+| `infraestructura/servicios_externos.py` | Cliente HTTP para consultar tipos de cambio con reintentos limitados. |
+| `infraestructura/conexion_local.py`, `acceso_local.py`, `cotizaciones_locales.py` | SQLite para acceso temporal sin conexión y cotizaciones guardadas. |
+| `infraestructura/deserializador_cotizacion.py` | Valida JSON del proveedor y lo convierte en un objeto de dominio. |
 | `presentacion/inicio.py` | Inicio, reintentos, preparación del cifrado y cierre de la conexión. |
 | `presentacion/menu.py` | Menús y funciones que ejecutan cada opción. |
 | `presentacion/entradas.py` | Ingreso, validación y corrección de datos. |
+| `presentacion/sesion.py`, `cotizaciones.py` | Sesiones en línea/locales y consulta de cotizaciones desde los menús. |
 | `presentacion/errores.py` | Traducción de errores conocidos a mensajes de consola. |
 
 El menú queda en presentación y `main.py` solo inicia la aplicación. Las validaciones están en un archivo en la raíz; no hay una carpeta `comun`. La excepción del repositorio se define en ese mismo archivo para evitar un módulo separado con una sola clase.
@@ -75,11 +81,11 @@ Las acciones del menú y de los informes se dividieron en funciones pequeñas. S
 
 ## Contraseñas y archivos
 
-Las contraseñas de cuentas nuevas o modificadas se procesan con Argon2id, con sal aleatoria de 16 bytes, 64 MiB de memoria, tres iteraciones y cuatro vías. El resultado se cifra con Fernet para conservar el formato de almacenamiento existente. La verificación de las cuentas antiguas sigue admitida con su clave original; no se migran ni modifican automáticamente los registros ya guardados.
+Las contraseñas nuevas se guardan como hashes Argon2id con sal aleatoria de 16 bytes, 64 MiB de memoria, tres iteraciones y cuatro vías. Las contraseñas antiguas protegidas con Fernet se siguen verificando hasta ejecutar la migración controlada. `migrar_cuentas.py` conserva hashes existentes y convierte los registros legibles; ejecútalo primero contra una copia de prueba y conserva la clave Fernet original. Si no se puede descifrar una cuenta, debe restablecerse su contraseña.
 
 La clave nueva y los informes nuevos se crean sin sobrescribir archivos existentes y con permisos de propietario en sistemas POSIX. En Windows el acceso depende también de los permisos de la carpeta. Protege tanto la clave como el archivo `.env` y los informes, que contienen datos personales. `.gitignore` excluye esos archivos locales del repositorio.
 
-El menú conserva el alcance administrativo del proyecto: la comprobación de contraseña de una cuenta no crea una sesión ni restringe cada operación por rol. La conexión utiliza los permisos del usuario PostgreSQL configurado. Antes de utilizar datos reales en un entorno compartido, se necesita definir y probar la autorización de usuarios y los permisos de ese usuario de base de datos.
+El inicio de sesión crea una sesión con el rol consultado desde PostgreSQL. El gerente puede usar las opciones administrativas; el empleado puede consultar solo sus datos y horas usando el ID de su sesión. Ambos pueden consultar tipos de cambio. Las operaciones administrativas vuelven a comprobar el rol antes de ejecutarse.
 
 ## Recuperación cuando se perdió la clave Fernet
 
@@ -102,9 +108,17 @@ Desde el menú: opción **15** para mostrar el informe, **16** para Excel y **17
 
 Las instrucciones completas están en [COMO_EXPORTAR.md](COMO_EXPORTAR.md).
 
+## E3: tipo de cambio, RUT y acceso sin conexión
+
+La rama E3 consulta ExchangeRate-API Open Access, que no requiere cuenta ni clave y exige atribución. Sus tasas se actualizan diariamente; el programa muestra la fecha publicada y cuándo obtuvo el dato. La conversión es informativa y no ejecuta pagos. Las consultas válidas se guardan en `datos/ecotech.sqlite3`; si falla la red o la API, se muestra el último respaldo con su antigüedad.
+
+Después de una autenticación correcta en Supabase, el mismo equipo conserva por 24 horas un verificador Argon2id para permitir acceso local de solo lectura. Sin Internet, solo se pueden consultar cotizaciones guardadas. Las cuentas y permisos locales reflejan el último acceso en línea y no se actualizan sin conexión.
+
+En una base nueva ejecuta `ecotech_supabase.sql` y luego `migraciones/002_rut.sql`. En una base existente aplica solo `migraciones/002_rut.sql` una vez antes de iniciar la versión E3; no vuelvas a ejecutar el esquema completo sobre datos existentes. El RUT se pide al crear o editar empleados y debe completarse con los datos reales. Para una base sin cuentas, crea el primer gerente con `crear_gerente_inicial.py`. Para cuentas existentes, revisa `GUIA_E3.md` antes de migrarlas. Las instrucciones de prueba y los límites conocidos están en esa guía; las pruebas reproducibles están en `pruebas/test_e3.py`.
+
 ## Comprobaciones históricas
 
-Revisión local realizada el **22 de octubre de 2026**, sobre los 18 archivos Python de la aplicación:
+Revisión anterior realizada el **22 de octubre de 2026**, sobre los 18 archivos Python previos a la integración E3. Sus resultados históricos no cubren los módulos añadidos en esta entrega:
 
 | Comprobación | Resultado |
 | --- | --- |
